@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 
 import { ProductGridRow, toRows, useGridLayout } from '@/components/product/product-grid';
@@ -9,6 +9,7 @@ import { ErrorState } from '@/components/ui/error-state';
 import { HeaderButton, ScreenHeader } from '@/components/ui/screen-header';
 import { Icons } from '@/components/ui/icon';
 import { Spacing } from '@/constants/theme';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useTheme } from '@/hooks/use-theme';
 import { HOME_HREF } from '@/lib/routes';
 import { useCartCount } from '@/store/cart';
@@ -21,11 +22,8 @@ export default function WishlistScreen() {
   const layout = useGridLayout();
   const [refreshing, setRefreshing] = useState(false);
 
-  // the session loads it at sign-in; this catches a failed or never-run load
-  useEffect(() => {
-    if (wishlist.status === 'idle' || wishlist.status === 'error') wishlistActions.refresh().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // re-read the wishlist on every visit; the saved list stays on screen meanwhile
+  const updating = useRefreshOnFocus(() => wishlistActions.refresh(), wishlist.status === 'ready');
 
   async function refresh() {
     setRefreshing(true);
@@ -41,6 +39,7 @@ export default function WishlistScreen() {
       <ScreenHeader
         title="Wishlist"
         subtitle={subtitle}
+        updating={updating && wishlist.status === 'ready'}
         right={<HeaderButton icon={Icons.cart} label="Cart" badge={cartCount} onPress={() => router.push('/cart')} />}
       />
       {wishlist.status === 'loading' || wishlist.status === 'idle' ? (

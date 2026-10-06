@@ -19,7 +19,7 @@ export default function CategoriesScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const itemCount = useCartCount();
-  const categories = useAsync((_, options) => shop.catalog.categories(options), []);
+  const categories = useAsync((_, options) => shop.catalog.categories(options), [], { refetchOnFocus: true });
   const columns = width > 600 ? 5 : 3;
   const tileWidth = (Math.min(width, 900) - Spacing.three * 2) / columns;
 
@@ -29,6 +29,7 @@ export default function CategoriesScreen() {
         title="Categories"
         subtitle={categories.data ? plural(categories.data.length, 'category', 'categories') : undefined}
         showBack={false}
+        updating={categories.updating}
         right={<HeaderButton icon={Icons.search} label="Search" onPress={() => router.push('/search')} />}
       />
       <ScrollView

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { errorMessage, isCancel } from '@/api/client';
+import { toast } from '@/components/ui/toast';
 
 type FetchPage<T> = (page: number, signal: AbortSignal) => Promise<T[]>;
 
@@ -20,6 +21,8 @@ export function useInfiniteList<T>(fetchPage: FetchPage<T>, key: string) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  /** Re-fetching because the screen came back into view (old items stay visible). */
+  const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
@@ -46,7 +49,7 @@ export function useInfiniteList<T>(fetchPage: FetchPage<T>, key: string) {
     fetchRef.current = fetchPage;
   });
 
-  const loadPage = useCallback(async (pageNo: number, mode: 'first' | 'more' | 'refresh') => {
+  const loadPage = useCallback(async (pageNo: number, mode: 'first' | 'more' | 'refresh' | 'background') => {
     if (mode === 'more' && busy.current) return;
     if (mode !== 'more') controller.current?.abort();
     const current = mode === 'more' && controller.current ? controller.current : new AbortController();
@@ -63,6 +66,11 @@ export function useInfiniteList<T>(fetchPage: FetchPage<T>, key: string) {
       setError(null);
     } catch (err) {
       if (current.signal.aborted || isCancel(err)) return;
+      // a failed background re-fetch keeps the list on screen
+      if (mode === 'background' && page.current > 0) {
+        toast.show(`Couldn't update — ${errorMessage(err)}`, 'error');
+        return;
+      }
       setError(errorMessage(err));
       // a failed "load more" stops the auto-trigger until the user retries
       if (mode === 'more') setHasMore(false);
@@ -72,6 +80,7 @@ export function useInfiniteList<T>(fetchPage: FetchPage<T>, key: string) {
         setLoading(false);
         setLoadingMore(false);
         setRefreshing(false);
+        setUpdating(false);
       }
     }
   }, []);
@@ -95,6 +104,7 @@ export function useInfiniteList<T>(fetchPage: FetchPage<T>, key: string) {
     loading,
     loadingMore,
     refreshing,
+    updating,
     error,
     hasMore,
     loadMore: more,
@@ -113,6 +123,12 @@ export function useInfiniteList<T>(fetchPage: FetchPage<T>, key: string) {
     refresh: () => {
       setRefreshing(true);
       void loadPage(1, 'refresh');
+    },
+    /** Re-fetch page 1 quietly (screen came back into view); shows `updating`, not the pull spinner. */
+    revalidate: () => {
+      if (page.current === 0) return;
+      setUpdating(true);
+      void loadPage(1, 'background');
     },
   };
 }

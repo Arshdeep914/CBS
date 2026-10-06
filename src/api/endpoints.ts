@@ -25,6 +25,8 @@ export const ENDPOINTS = {
     CART: 'api/pk/Customer/Cart',
     /** Reads the wishlist (POST with `mappingCodes: []`). */
     CHECKLIST: 'api/pk/Customer/CheckList',
+    /** `/{uid}` — cart and wishlist badge counts (as on the Chicstylista storefront). */
+    COUNT: 'api/pk/Customer/Count',
     /** `/add` and `/remove`. */
     WISHLIST: 'api/pk/Customer/wishlist',
   },

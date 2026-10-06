@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Icons, type IconName } from '@/components/ui/icon';
@@ -17,9 +17,11 @@ type ScreenHeaderProps = {
   right?: ReactNode;
   /** Draw a hairline under the header. */
   bordered?: boolean;
+  /** Show a small "Updating…" spinner beside the title while the page re-fetches. */
+  updating?: boolean;
 };
 
-export function ScreenHeader({ title, subtitle, showBack = true, right, bordered = true }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, showBack = true, right, bordered = true, updating = false }: ScreenHeaderProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -41,9 +43,12 @@ export function ScreenHeader({ title, subtitle, showBack = true, right, bordered
         />
       )}
       <View style={styles.titles}>
-        <AppText variant={showBack ? 'subheading' : 'title'} numberOfLines={1}>
-          {title}
-        </AppText>
+        <View style={styles.titleRow}>
+          <AppText variant={showBack ? 'subheading' : 'title'} numberOfLines={1} style={styles.shrink}>
+            {title}
+          </AppText>
+          {updating && <UpdatingHint />}
+        </View>
         {subtitle && (
           <AppText variant="caption" color="textSecondary" numberOfLines={1}>
             {subtitle}
@@ -51,6 +56,22 @@ export function ScreenHeader({ title, subtitle, showBack = true, right, bordered
         )}
       </View>
       {right && <View style={styles.right}>{right}</View>}
+    </View>
+  );
+}
+
+/** Inline spinner + "Updating…", for re-fetches that keep the old data on screen. */
+export function UpdatingHint() {
+  const theme = useTheme();
+  return (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel="Updating"
+      style={[styles.updating, { backgroundColor: theme.primarySoft }]}>
+      <ActivityIndicator size="small" color={theme.primary} style={styles.spinner} />
+      <AppText variant="micro" color="primary">
+        Updating…
+      </AppText>
     </View>
   );
 }
@@ -99,6 +120,26 @@ const styles = StyleSheet.create({
   },
   titles: {
     flex: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  shrink: {
+    flexShrink: 1,
+  },
+  updating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  spinner: {
+    transform: [{ scale: 0.7 }],
+    height: 16,
   },
   right: {
     flexDirection: 'row',

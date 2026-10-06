@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { type ReactElement } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, type ReactElement } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,7 +14,7 @@ import { SearchLauncher } from '@/components/search-launcher';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { Icon, Icons } from '@/components/ui/icon';
-import { HeaderButton } from '@/components/ui/screen-header';
+import { HeaderButton, UpdatingHint } from '@/components/ui/screen-header';
 import { DividerTitle, SectionHeader } from '@/components/ui/section-header';
 import { AppText } from '@/components/ui/text';
 import { Spacing } from '@/constants/theme';
@@ -22,7 +22,9 @@ import { useAsync } from '@/hooks/use-async';
 import { useTheme } from '@/hooks/use-theme';
 import { shop } from '@/services';
 import { useCartCount } from '@/store/cart';
+import { countsActions, useCounts } from '@/store/counts';
 import { useSession } from '@/store/session';
+import { useWishlist } from '@/store/wishlist';
 
 type HomeItem = { key: 'header' | 'search' | 'discover' | 'sections' | 'footer' };
 
@@ -46,9 +48,19 @@ export default function HomeScreen() {
   const contentWidth = Math.min(windowWidth, 900);
   const itemCount = useCartCount();
 
-  const categories = useAsync((_, options) => shop.catalog.categories(options), []);
-  const brands = useAsync((_, options) => shop.catalog.brands(options), []);
-  const sections = useAsync((signal) => shop.catalog.home(signal), []);
+  const categories = useAsync((_, options) => shop.catalog.categories(options), [], { refetchOnFocus: true });
+  const brands = useAsync((_, options) => shop.catalog.brands(options), [], { refetchOnFocus: true });
+  const sections = useAsync((signal) => shop.catalog.home(signal), [], { refetchOnFocus: true });
+  const updating = categories.updating || brands.updating || sections.updating;
+
+  // cart and wishlist badges come from the Count API, re-read whenever Home is shown
+  const counts = useCounts();
+  const wishlist = useWishlist();
+  useFocusEffect(
+    useCallback(() => {
+      countsActions.refresh().catch(() => {});
+    }, []),
+  );
 
   /** Pull-to-refresh: re-fetches everything on the page from the API. */
   function refreshAll() {
@@ -60,7 +72,13 @@ export default function HomeScreen() {
   function renderItem({ item }: { item: HomeItem }): ReactElement | null {
     switch (item.key) {
       case 'header':
-        return <HomeHeader cartCount={itemCount} />;
+        return (
+          <HomeHeader
+            cartCount={counts.cart ?? itemCount}
+            wishlistCount={counts.wishlist ?? wishlist.items.length}
+            updating={updating}
+          />
+        );
       case 'search':
         return (
           <View style={[styles.searchWrap, { backgroundColor: theme.background }]}>
@@ -128,7 +146,7 @@ export default function HomeScreen() {
         keyExtractor={(item) => item.key}
         renderItem={renderItem}
         // re-render rows when any of the three data sources changes
-        extraData={[categories.data, categories.loading, categories.error, brands.data, brands.loading, sections.data, sections.loading, sections.error, itemCount]}
+        extraData={[categories.data, categories.loading, categories.error, brands.data, brands.loading, sections.data, sections.loading, sections.error, itemCount, counts, wishlist.items.length, updating]}
         stickyHeaderIndices={STICKY_INDEXES}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -141,7 +159,7 @@ export default function HomeScreen() {
   );
 }
 
-function HomeHeader({ cartCount }: { cartCount: number }) {
+function HomeHeader({ cartCount, wishlistCount, updating }: { cartCount: number; wishlistCount: number; updating: boolean }) {
   const theme = useTheme();
   const { user } = useSession();
   const firstName = user?.name.trim().split(/\s+/)[0];
@@ -161,10 +179,14 @@ function HomeHeader({ cartCount }: { cartCount: number }) {
           {greeting()}
           {firstName ? `, ${firstName}` : ''}
         </AppText>
-        <AppText variant="subheading" numberOfLines={1}>
-          CBS Kitchenware
-        </AppText>
+        <View style={styles.titleRow}>
+          <AppText variant="subheading" numberOfLines={1} style={styles.shrink}>
+            CBS Kitchenware
+          </AppText>
+          {updating && <UpdatingHint />}
+        </View>
       </View>
+      <HeaderButton icon={Icons.heart} label="Wishlist" badge={wishlistCount} onPress={() => router.push('/wishlist')} />
       <HeaderButton icon={Icons.cart} label="Cart" badge={cartCount} onPress={() => router.push('/cart')} />
       <Pressable
         accessibilityRole="button"
@@ -256,6 +278,14 @@ function BrandsBlock({ state }: { state: AsyncList<{ name: string }> }) {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  shrink: {
+    flexShrink: 1,
   },
   header: {
     flexDirection: 'row',

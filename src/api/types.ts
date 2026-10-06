@@ -140,6 +140,9 @@ export type ApiCartItem = {
 
 export type ApiCartMutation = { cartCount?: number };
 
+/** Count/{uid}: the header badge numbers. */
+export type ApiCounts = { cartCount?: number; wishlistCount?: number; isRandom?: boolean };
+
 /** A CheckList (wishlist) row. Pricing sits on `sellerPriceDTO`, with root-level fallbacks. */
 export type ApiWishlistItem = {
   mappingCode?: string;

@@ -16,7 +16,7 @@ import { shop } from '@/services';
 export default function BrandsScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const brands = useAsync((_, options) => shop.catalog.brands(options), []);
+  const brands = useAsync((_, options) => shop.catalog.brands(options), [], { refetchOnFocus: true });
   const available = Math.min(width, 900) - Spacing.three * 2;
   const columns = available > 600 ? 4 : 2;
   const gap = Spacing.three - 4;
@@ -24,7 +24,11 @@ export default function BrandsScreen() {
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
-      <ScreenHeader title="All brands" subtitle={brands.data ? plural(brands.data.length, 'brand') : undefined} />
+      <ScreenHeader
+        title="All brands"
+        subtitle={brands.data ? plural(brands.data.length, 'brand') : undefined}
+        updating={brands.updating}
+      />
       <ScrollView
         refreshControl={
           <RefreshControl refreshing={brands.refreshing} onRefresh={brands.refresh} tintColor={theme.primary} colors={[theme.primary]} />

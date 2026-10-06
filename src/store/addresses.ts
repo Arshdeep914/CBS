@@ -49,10 +49,6 @@ async function load() {
 
 export const addressActions = {
   load,
-  /** Loads once; later calls are no-ops unless the last load failed. */
-  ensureLoaded() {
-    if (state.status === 'idle' || state.status === 'error') load().catch(() => {});
-  },
   select(id: string) {
     setState({ selectedId: id });
   },

@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { errorMessage } from '@/api/client';
@@ -12,6 +12,7 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { AppText } from '@/components/ui/text';
 import { toast } from '@/components/ui/toast';
 import { MaxFormWidth, Radius, Spacing } from '@/constants/theme';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useTheme } from '@/hooks/use-theme';
 import type { Address } from '@/services/types';
 import { addressActions, formatAddress, useAddresses } from '@/store/addresses';
@@ -21,9 +22,7 @@ export default function AddressesScreen() {
   const addresses = useAddresses();
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    addressActions.ensureLoaded();
-  }, []);
+  const updating = useRefreshOnFocus(() => addressActions.load(), addresses.status === 'ready');
 
   async function refresh() {
     setRefreshing(true);
@@ -33,7 +32,7 @@ export default function AddressesScreen() {
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
-      <ScreenHeader title="Saved addresses" />
+      <ScreenHeader title="Saved addresses" updating={updating && addresses.status === 'ready'} />
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={theme.primary} colors={[theme.primary]} />}
         contentContainerStyle={styles.content}>

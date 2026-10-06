@@ -8,6 +8,7 @@ import { shop } from '@/services';
 import type { UserProfile } from '@/services/types';
 import { addressActions } from '@/store/addresses';
 import { cartActions } from '@/store/cart';
+import { countsActions } from '@/store/counts';
 import { clearOrderCache } from '@/store/orders';
 import { wishlistActions } from '@/store/wishlist';
 
@@ -26,6 +27,7 @@ type SessionContextValue = {
 function loadAccountData() {
   cartActions.refresh().catch(() => {});
   wishlistActions.refresh().catch(() => {});
+  countsActions.refresh().catch(() => {});
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -57,6 +59,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await clearSession();
     cartActions.reset();
     wishlistActions.reset();
+    countsActions.reset();
     addressActions.reset();
     clearOrderCache();
     setUser(null);

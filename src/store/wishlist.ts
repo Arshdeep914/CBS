@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react';
 import { errorMessage } from '@/api/client';
 import { shop } from '@/services';
 import type { ProductSummary } from '@/services/types';
+import { countsActions } from '@/store/counts';
 
 /**
  * The wishlist lives on the server; this store mirrors it so every heart
@@ -67,6 +68,7 @@ export const wishlistActions = {
     try {
       if (wasSaved) await shop.wishlist.remove(id);
       else await shop.wishlist.add(id);
+      countsActions.refreshSoon();
       return !wasSaved;
     } catch (err) {
       setState({ items: previous });

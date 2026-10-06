@@ -48,7 +48,7 @@ export default function OrdersScreen() {
         firstFocus.current = false;
         return;
       }
-      list.refresh();
+      list.revalidate();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
@@ -65,7 +65,7 @@ export default function OrdersScreen() {
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
-      <ScreenHeader title="Orders" showBack={false} bordered={false} />
+      <ScreenHeader title="Orders" showBack={false} bordered={false} updating={list.updating} />
       <FlatList
         data={visible}
         keyExtractor={(order) => order.id}

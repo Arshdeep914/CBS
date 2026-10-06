@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -18,6 +18,7 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { AppText } from '@/components/ui/text';
 import { toast } from '@/components/ui/toast';
 import { MaxFormWidth, Radius, Spacing } from '@/constants/theme';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useTheme } from '@/hooks/use-theme';
 import { formatINR, plural } from '@/lib/format';
 import { HOME_HREF } from '@/lib/routes';
@@ -42,11 +43,11 @@ export default function CartScreen() {
   const [payment, setPayment] = useState<PendingPayment | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    addressActions.ensureLoaded();
-    // pick up changes made on another device
-    cartActions.refresh().catch(() => {});
-  }, []);
+  // every visit re-reads the cart (it may have changed on another device) and the addresses
+  const updating = useRefreshOnFocus(
+    () => Promise.all([cartActions.refresh(), addressActions.load()]),
+    cart.status === 'ready',
+  );
 
   const totals = cartTotals(cart.lines);
   const selected = addresses.items.find((a) => a.id === addresses.selectedId) ?? null;
@@ -250,7 +251,11 @@ export default function CartScreen() {
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
-      <ScreenHeader title="Cart" subtitle={showBar ? plural(totals.itemCount, 'item') : undefined} />
+      <ScreenHeader
+        title="Cart"
+        subtitle={showBar ? plural(totals.itemCount, 'item') : undefined}
+        updating={updating && cart.status === 'ready'}
+      />
       {body}
 
       {showBar && (

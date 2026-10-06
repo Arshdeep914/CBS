@@ -313,6 +313,13 @@ export const demoShop: ShopService = {
     },
   },
 
+  counts: {
+    async fetch() {
+      await wait(200);
+      return { cart: cartLines.length, wishlist: wishlistIds.length };
+    },
+  },
+
   wishlist: {
     async list() {
       await wait(350);

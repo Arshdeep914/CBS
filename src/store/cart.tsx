@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react';
 import { Env } from '@/config/env';
 import { shop } from '@/services';
 import type { CartLine, PaymentModes, ProductSummary } from '@/services/types';
+import { countsActions } from '@/store/counts';
 
 /**
  * The cart lives on the server; this store mirrors it.
@@ -100,6 +101,7 @@ async function remove(id: string) {
   setState({ lines: previous.filter((line) => line.id !== id) });
   try {
     await shop.cart.remove(id);
+    countsActions.refreshSoon();
   } catch (err) {
     // the server is the source of truth on what "put it back" means
     await refresh().catch(() => setState({ lines: previous }));
@@ -117,6 +119,7 @@ export const cartActions = {
     setPending(product.id, true);
     try {
       await shop.cart.add(product.id, product.variationCode ?? '', qty);
+      countsActions.refreshSoon();
       await refresh();
     } finally {
       setPending(product.id, false);
@@ -137,6 +140,7 @@ export const cartActions = {
       }
       // the server only echoes the touched row; patch just that line
       if (ack.qty !== null && ack.qty !== qty) patchLine(id, { qty: ack.qty });
+      countsActions.refreshSoon();
     } catch (err) {
       patchLine(id, { qty: before });
       throw err;
@@ -150,6 +154,7 @@ export const cartActions = {
   /** Empties the local copy after an order, then confirms with the server. */
   async afterOrder() {
     setState({ lines: [] });
+    countsActions.refreshSoon(0);
     await refresh().catch(() => {});
   },
 

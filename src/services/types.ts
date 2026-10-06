@@ -201,6 +201,10 @@ export type ShopService = {
     /** Returns the server's quantity when it corrects ours (e.g. clamped to stock). */
     setQty(id: string, qty: number): Promise<{ acknowledged: boolean; qty: number | null }>;
   };
+  counts: {
+    /** Number of items in the cart and the wishlist (Count API). */
+    fetch(): Promise<{ cart: number; wishlist: number }>;
+  };
   wishlist: {
     list(): Promise<ProductSummary[]>;
     add(id: string): Promise<void>;

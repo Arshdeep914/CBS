@@ -212,7 +212,8 @@ const apiHost = (() => {
  * names can contain spaces, so the URL is encoded too.
  */
 export function resolveImageUrl(url?: string | null): string | null {
-  const trimmed = (url ?? '').trim();
+  // order images come back as Windows paths: http://host\Uploads\107\…
+  const trimmed = (url ?? '').trim().replace(/\\/g, '/');
   if (!trimmed) return null;
   if (/^(data|blob|file):/i.test(trimmed)) return trimmed;
 

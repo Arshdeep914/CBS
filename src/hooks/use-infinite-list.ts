@@ -3,7 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage, isCancel } from '@/api/client';
 import { toast } from '@/components/ui/toast';
 
-type FetchPage<T> = (page: number, signal: AbortSignal) => Promise<T[]>;
+/** A page of items, or items plus an explicit "has more" when the API reports it. */
+type PageResult<T> = T[] | { items: T[]; hasMore: boolean };
+
+type FetchPage<T> = (page: number, signal: AbortSignal) => Promise<PageResult<T>>;
 
 /**
  * Server-side paging for "load more as you scroll" lists.
@@ -57,12 +60,15 @@ export function useInfiniteList<T>(fetchPage: FetchPage<T>, key: string) {
     busy.current = true;
 
     try {
-      const result = await fetchRef.current(pageNo, current.signal);
+      const response = await fetchRef.current(pageNo, current.signal);
       if (current.signal.aborted) return;
+      const result = Array.isArray(response) ? response : response.items;
       if (pageNo === 1) pageSize.current = result.length;
       page.current = pageNo;
       setItems((prev) => (pageNo === 1 ? result : [...prev, ...result]));
-      setHasMore(result.length > 0 && result.length >= pageSize.current);
+      setHasMore(
+        Array.isArray(response) ? result.length > 0 && result.length >= pageSize.current : response.hasMore,
+      );
       setError(null);
     } catch (err) {
       if (current.signal.aborted || isCancel(err)) return;

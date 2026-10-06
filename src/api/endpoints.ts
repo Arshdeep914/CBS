@@ -27,6 +27,14 @@ export const ENDPOINTS = {
     CHECKLIST: 'api/pk/Customer/CheckList',
     /** `/{uid}` — cart and wishlist badge counts (as on the Chicstylista storefront). */
     COUNT: 'api/pk/Customer/Count',
+
+    /**
+     * Push-notification device tokens. NOT LIVE YET — these are the paths proposed
+     * to the backend team (docs/push-notifications-backend-guide.pdf, §4); update
+     * them to whatever they ship, then set EXPO_PUBLIC_PUSH_TOKEN_SYNC=true.
+     */
+    PUSH_TOKEN_REGISTER: 'api/pk/Customer/PushToken/Register',
+    PUSH_TOKEN_REMOVE: 'api/pk/Customer/PushToken/Remove',
     /** `/add` and `/remove`. */
     WISHLIST: 'api/pk/Customer/wishlist',
   },

@@ -34,6 +34,12 @@ export const Env = {
   offline: !apiUrl,
   razorpayKeyId: clean(process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID),
   platformFee: Number(clean(process.env.EXPO_PUBLIC_PLATFORM_FEE)) || 0,
+  /**
+   * Send this phone's push token to the backend (Register / Remove endpoints).
+   * Off until the backend has built them — the token is still logged and shown
+   * on the Notifications screen for testing.
+   */
+  pushTokenSync: flag(process.env.EXPO_PUBLIC_PUSH_TOKEN_SYNC, false),
   /** Print every API request and response in the terminal (see src/api/logger.ts). */
   logs: flag(process.env.EXPO_PUBLIC_LOGS, false),
 } as const;

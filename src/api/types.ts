@@ -181,16 +181,29 @@ export type ApiAddress = {
 
 /* -------------------------------- orders -------------------------------- */
 
+/** One product line of an order; `User/Orders` returns these, several per order. */
 export type ApiOrderLine = {
   orderCode: string;
   orderNo: string;
+  /** "06 Oct 2026 04:47 PM" */
   orderDate: string;
-  status: number;
+  /** A label such as "New Order", "Processing", "Cancelled" (older builds sent a number). */
+  status: string | number;
   productCode: string;
   productName: string;
+  /** Can be a Windows-style path: http://host\Uploads\… */
   image: string | null;
+  /** Line total (unit price × quantity), not the unit price. */
   amount: number;
   quantity: number;
+};
+
+/** `User/Orders` pages by product line, and says how many pages there are. */
+export type ApiOrdersPage = {
+  currentPageNo?: number;
+  currentPageSize?: number;
+  totalPageCount?: number;
+  orders?: ApiOrderLine[];
 };
 
 /** `Order/proceed` hands back the token every later call in the flow needs. */

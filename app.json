@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "com.cbskitchenware.trade",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
@@ -43,7 +44,14 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#D9161C",
+          "defaultChannel": "orders"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

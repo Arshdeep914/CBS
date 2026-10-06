@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "577376269386",
+    "project_id": "cbs-kitchenware-9c06d",
+    "storage_bucket": "cbs-kitchenware-9c06d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:577376269386:android:faa83e59a550ea2f24a2b3",
+        "android_client_info": {
+          "package_name": "com.cbskitchenware.trade"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAb2SKoz1ihLaQ7UBJEqkCKMfmjx_09tcA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

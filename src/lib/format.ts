@@ -22,25 +22,53 @@ function trim(value: number) {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export function formatDate(iso: string) {
-  const date = new Date(iso);
-  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+/**
+ * Reads the dates the backend sends. Besides ISO strings it uses
+ * "06 Oct 2026 04:47 PM" (orders), which Hermes — the app's JS engine — can't
+ * parse with `new Date()`. Returns null for anything unreadable.
+ */
+export function parseApiDate(value: string | null | undefined): Date | null {
+  const text = (value ?? '').trim();
+  if (!text) return null;
+
+  const match = /^(\d{1,2})[\s-]+([A-Za-z]{3})[A-Za-z]*[\s-]+(\d{4})(?:[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])?)?$/.exec(text);
+  if (match) {
+    const [, day, mon, year, hh = '0', mm = '0', ss = '0', meridiem] = match;
+    const month = MONTHS.findIndex((m) => m.toLowerCase() === mon.toLowerCase());
+    if (month < 0) return null;
+    let hours = Number(hh) % 24;
+    if (meridiem) hours = (hours % 12) + (meridiem.toLowerCase() === 'pm' ? 12 : 0);
+    const date = new Date(Number(year), month, Number(day), hours, Number(mm), Number(ss));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-export function formatShortDate(iso: string) {
-  const date = new Date(iso);
-  return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+/** 6 Oct 2026 — or '' when the date can't be read. */
+export function formatDate(value: string) {
+  const date = parseApiDate(value);
+  return date ? `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}` : '';
 }
 
-export function formatTime(iso: string) {
-  const date = new Date(iso);
+export function formatShortDate(value: string) {
+  const date = parseApiDate(value);
+  return date ? `${date.getDate()} ${MONTHS[date.getMonth()]}` : '';
+}
+
+export function formatTime(value: string) {
+  const date = parseApiDate(value);
+  if (!date) return '';
   const hours = date.getHours();
   const minutes = date.getMinutes().toString().padStart(2, '0');
   return `${hours % 12 || 12}:${minutes} ${hours < 12 ? 'AM' : 'PM'}`;
 }
 
-export function formatDateTime(iso: string) {
-  return `${formatShortDate(iso)}, ${formatTime(iso)}`;
+export function formatDateTime(value: string) {
+  const day = formatShortDate(value);
+  const time = formatTime(value);
+  return day && time ? `${day}, ${time}` : day;
 }
 
 export function plural(count: number, singular: string, pluralForm = `${singular}s`) {

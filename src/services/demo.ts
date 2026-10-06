@@ -313,6 +313,12 @@ export const demoShop: ShopService = {
     },
   },
 
+  push: {
+    // offline demo: nothing to register with
+    async register() {},
+    async remove() {},
+  },
+
   counts: {
     async fetch() {
       await wait(200);
@@ -367,7 +373,10 @@ export const demoShop: ShopService = {
     async cancel() {},
     async list(pageNo, pageSize) {
       await wait(500);
-      return orders.slice((pageNo - 1) * pageSize, pageNo * pageSize);
+      return {
+        orders: orders.slice((pageNo - 1) * pageSize, pageNo * pageSize),
+        hasMore: pageNo * pageSize < orders.length,
+      };
     },
   },
 

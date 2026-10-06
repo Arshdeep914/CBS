@@ -14,6 +14,29 @@ export function getCachedOrder(id: string) {
   return cache.get(id);
 }
 
+/** The newest order loaded so far (the list arrives newest first), if any. */
+export function latestCachedOrder() {
+  return cache.values().next().value;
+}
+
+/**
+ * Joins orders that were split across pages. `User/Orders` pages by product
+ * line, so an order's lines can end one page and continue on the next — which
+ * would otherwise show it twice, each half with part of the items and total.
+ */
+export function mergeOrders(orders: Order[]): Order[] {
+  const merged = new Map<string, Order>();
+  for (const order of orders) {
+    const existing = merged.get(order.id);
+    if (!existing) {
+      merged.set(order.id, order);
+      continue;
+    }
+    merged.set(order.id, { ...existing, items: [...existing.items, ...order.items], total: existing.total + order.total });
+  }
+  return [...merged.values()];
+}
+
 export function clearOrderCache() {
   cache.clear();
 }

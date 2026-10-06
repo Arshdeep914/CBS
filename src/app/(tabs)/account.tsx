@@ -76,7 +76,7 @@ export default function AccountScreen() {
           <MenuRow icon={Icons.location} label="Saved addresses" detail="Manage where we deliver" onPress={() => router.push('/addresses')} />
           <MenuRow icon={Icons.orders} label="My orders" detail="Track, view and get help" onPress={() => router.navigate('/orders')} />
           <MenuRow icon={Icons.heart} label="Wishlist" detail="Products you've saved for later" onPress={() => router.push('/wishlist')} />
-          <MenuRow icon={Icons.bell} label="Notifications" detail="Order updates and offers" onPress={() => comingSoon('Notifications')} />
+          <MenuRow icon={Icons.bell} label="Notifications" detail="Order updates and offers" onPress={() => router.push('/notifications')} />
         </MenuSection>
 
         <MenuSection title="SUPPORT">

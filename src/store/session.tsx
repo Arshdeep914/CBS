@@ -3,6 +3,7 @@ import { createContext, use, useEffect, useState, type ReactNode } from 'react';
 
 import { onSessionExpired } from '@/api/client';
 import { toast } from '@/components/ui/toast';
+import { pushActions } from '@/lib/push-token';
 import { clearSession, loadSession, saveSession } from '@/lib/session-storage';
 import { shop } from '@/services';
 import type { UserProfile } from '@/services/types';
@@ -23,11 +24,16 @@ type SessionContextValue = {
   signOut: () => Promise<void>;
 };
 
-/** The signed-in user's server-side state, fetched in the background. */
-function loadAccountData() {
+/**
+ * The signed-in user's server-side state, fetched in the background, plus this
+ * phone's push token. The permission prompt is shown on a fresh sign-in only,
+ * not on every launch.
+ */
+function loadAccountData({ freshSignIn }: { freshSignIn: boolean }) {
   cartActions.refresh().catch(() => {});
   wishlistActions.refresh().catch(() => {});
   countsActions.refresh().catch(() => {});
+  void pushActions.register({ prompt: freshSignIn });
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -47,7 +53,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       setUser(session?.user ?? null);
       setStatus(session ? 'signed-in' : 'signed-out');
-      if (session) loadAccountData();
+      if (session) loadAccountData({ freshSignIn: false });
       SplashScreen.hideAsync().catch(() => {});
     });
     return () => {
@@ -56,6 +62,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signOut() {
+    // while the session (JWT) is still valid: stop notifications to this phone
+    await pushActions.unregister();
     await clearSession();
     cartActions.reset();
     wishlistActions.reset();
@@ -81,7 +89,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await saveSession({ jwt: result.jwt, pksoftToken: result.pksoftToken, user: result.user });
     setUser(result.user);
     setStatus('signed-in');
-    loadAccountData();
+    loadAccountData({ freshSignIn: true });
   }
 
   return <SessionContext value={{ status, user, signIn, signOut }}>{children}</SessionContext>;

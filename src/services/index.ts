@@ -6,6 +6,7 @@ import { liveCart } from '@/services/live/cart';
 import { liveCatalog } from '@/services/live/catalog';
 import { liveCounts } from '@/services/live/counts';
 import { liveOrders } from '@/services/live/orders';
+import { livePush } from '@/services/live/push';
 import { liveWishlist } from '@/services/live/wishlist';
 import type { ShopService } from '@/services/types';
 
@@ -17,12 +18,13 @@ export const isDemo = Env.useDemoProducts;
  *
  * EXPO_PUBLIC_USE_DEMO_PRODUCTS only swaps what is built on products —
  * catalogue, cart, counts, wishlist and orders — since demo product ids mean nothing to
- * the live cart. Sign-in, sign-up, password reset and saved addresses belong to
- * the real account, so they always hit the API (unless no API URL is set at all).
+ * the live cart. Sign-in, sign-up, password reset, saved addresses and push tokens
+ * belong to the real account, so they always hit the API (unless no API URL is set at all).
  */
 export const shop: ShopService = {
   auth: Env.offline ? demoShop.auth : liveAuth,
   addresses: Env.offline ? demoShop.addresses : liveAddresses,
+  push: Env.offline ? demoShop.push : livePush,
   catalog: isDemo ? demoShop.catalog : liveCatalog,
   cart: isDemo ? demoShop.cart : liveCart,
   counts: isDemo ? demoShop.counts : liveCounts,

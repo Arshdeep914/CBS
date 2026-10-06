@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { OrderStatusPill } from '@/components/order-status-pill';
@@ -18,7 +18,7 @@ import { formatDate, formatINR, plural } from '@/lib/format';
 import { HOME_HREF } from '@/lib/routes';
 import { shop } from '@/services';
 import type { Order } from '@/services/types';
-import { cacheOrders, CANCELLED_CODES, isActiveOrder } from '@/store/orders';
+import { cacheOrders, CANCELLED_CODES, isActiveOrder, mergeOrders } from '@/store/orders';
 
 type Segment = 'all' | 'active' | 'delivered' | 'cancelled';
 
@@ -35,10 +35,12 @@ export default function OrdersScreen() {
   const theme = useTheme();
   const [segment, setSegment] = useState<Segment>('all');
   const list = useInfiniteList(async (page) => {
-    const orders = await shop.orders.list(page, PAGE_SIZE);
-    cacheOrders(orders);
-    return orders;
+    const { orders, hasMore } = await shop.orders.list(page, PAGE_SIZE);
+    return { items: orders, hasMore };
   }, 'orders');
+  // an order can continue on the next page; join the halves before showing or caching
+  const orders = useMemo(() => mergeOrders(list.items), [list.items]);
+  useEffect(() => cacheOrders(orders), [orders]);
 
   // a new order may have been placed since the tab was last shown
   const firstFocus = useRef(true);
@@ -53,7 +55,7 @@ export default function OrdersScreen() {
     }, []),
   );
 
-  const visible = list.items.filter((order) =>
+  const visible = orders.filter((order) =>
     segment === 'all'
       ? true
       : segment === 'active'

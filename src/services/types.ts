@@ -120,6 +120,7 @@ export type OrderItem = {
   productCode: string;
   name: string;
   image: string | null;
+  /** Unit price. */
   price: number;
   qty: number;
 };
@@ -127,7 +128,7 @@ export type OrderItem = {
 export type Order = {
   id: string;
   number: string;
-  /** ISO-ish date string from the backend */
+  /** ISO date string (falls back to the backend's own text if it can't be read) */
   date: string;
   statusCode: number;
   status: string;
@@ -201,6 +202,12 @@ export type ShopService = {
     /** Returns the server's quantity when it corrects ours (e.g. clamped to stock). */
     setQty(id: string, qty: number): Promise<{ acknowledged: boolean; qty: number | null }>;
   };
+  push: {
+    /** Saves this device's push token for the signed-in customer (idempotent). */
+    register(input: { token: string; platform: 'android' | 'ios'; deviceName: string | null; appVersion: string | null }): Promise<void>;
+    /** Forgets this device's token (sign-out). Never fails on "not found". */
+    remove(token: string): Promise<void>;
+  };
   counts: {
     /** Number of items in the cart and the wishlist (Count API). */
     fetch(): Promise<{ cart: number; wishlist: number }>;
@@ -220,7 +227,8 @@ export type ShopService = {
     }): Promise<StartOrderResult>;
     completePayment(token: string, payment: GatewayResult): Promise<{ ok: true } | { ok: false; message: string }>;
     cancel(token: string): Promise<void>;
-    list(page: number, pageSize: number): Promise<Order[]>;
+    /** One page of orders. An order can continue on the next page (the API pages by product line). */
+    list(page: number, pageSize: number): Promise<{ orders: Order[]; hasMore: boolean }>;
   };
   addresses: {
     list(): Promise<Address[]>;

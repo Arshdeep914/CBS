@@ -1,81 +1,104 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandMark } from '@/components/brand-mark';
 import { CART_BAR_SPACE, CartBar } from '@/components/cart-bar';
 import { FilterBar } from '@/components/filters/filter-bar';
-import { CategoryTile } from '@/components/home/category-tile';
+import { CategoryTile, TILE_TINTS } from '@/components/home/category-tile';
+import { PagedProductGrid } from '@/components/product/paged-grid';
 import { ProductRow } from '@/components/product/product-row';
 import { EndOfList, ProductRowSkeleton } from '@/components/product/skeletons';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
 import { Icon, Icons } from '@/components/ui/icon';
+import { ScreenHeader } from '@/components/ui/screen-header';
 import { SectionHeader } from '@/components/ui/section-header';
 import { AppText } from '@/components/ui/text';
 import { Radius, Spacing } from '@/constants/theme';
-import {
-  brands,
-  categories,
-  productsByTag,
-  trendingSearches,
-  type ProductTag,
-} from '@/data/catalog';
-import { usePagedList } from '@/hooks/use-paged-list';
+import { useAsync } from '@/hooks/use-async';
+import { useInfiniteList } from '@/hooks/use-infinite-list';
 import { useTheme } from '@/hooks/use-theme';
-import { applyFilters, brandsIn, EMPTY_FILTERS, searchProducts, type Filters } from '@/lib/filters';
-import { plural } from '@/lib/format';
+import { applyLocalFilters, EMPTY_FILTERS, type Filters } from '@/lib/filters';
+import { shop } from '@/services';
 import { useCartCount } from '@/store/cart';
 
-const TAG_TITLES: Record<ProductTag, string> = {
-  bestseller: 'Bestsellers',
-  'bulk-deal': 'Bulk deals',
-  new: 'New arrivals',
-  trending: 'Trending now',
-};
-
 // Kept for the session so recent searches survive leaving the screen.
-let recentSearches: string[] = ['Steel handi', 'Knife set'];
+let recentSearches: string[] = [];
 
-function rememberSearch(term: string) {
+function remember(term: string) {
   const clean = term.trim();
   if (!clean) return;
   recentSearches = [clean, ...recentSearches.filter((t) => t.toLowerCase() !== clean.toLowerCase())].slice(0, 6);
 }
 
 export default function SearchScreen() {
+  const params = useLocalSearchParams<{ section?: string; title?: string; q?: string }>();
+  // "See all" from a home section lists that section instead of searching
+  if (params.section) return <SectionList code={params.section} title={params.title ?? 'Products'} />;
+  return <SearchView initialQuery={params.q ?? ''} />;
+}
+
+/* ------------------------------------------------------------------ */
+/*  section listing                                                    */
+/* ------------------------------------------------------------------ */
+
+function SectionList({ code, title }: { code: string; title: string }) {
+  const theme = useTheme();
+  const itemCount = useCartCount();
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const list = useInfiniteList((page, signal) => shop.catalog.sectionProducts(code, page, signal), code);
+  const visible = applyLocalFilters([...list.items], filters);
+
+  return (
+    <View style={[styles.flex, { backgroundColor: theme.background }]}>
+      <ScreenHeader title={title} subtitle={list.loading ? 'Loading…' : `${list.items.length}${list.hasMore ? '+' : ''} products`} />
+      <PagedProductGrid
+        list={list}
+        products={visible}
+        loadedCount={list.items.length}
+        // this endpoint has no server filters: sort and quick toggles only
+        stickyHeader={
+          <View style={{ backgroundColor: theme.background }}>
+            <FilterBar filters={filters} onChange={setFilters} groups={[]} showPrice={false} sticky />
+          </View>
+        }
+        onClearFilters={() => setFilters(EMPTY_FILTERS)}
+        bottomPadding={itemCount > 0 ? CART_BAR_SPACE + Spacing.four : Spacing.five}
+      />
+      <CartBar />
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  search                                                             */
+/* ------------------------------------------------------------------ */
+
+function SearchView({ initialQuery }: { initialQuery: string }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ tag?: ProductTag; q?: string }>();
   const itemCount = useCartCount();
 
-  const [query, setQuery] = useState(params.q ?? '');
-  const [tag, setTag] = useState<ProductTag | undefined>(params.tag);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [query, setQuery] = useState(initialQuery);
+  /** The term results are shown for; typing again switches back to suggestions. */
+  const [submitted, setSubmitted] = useState(initialQuery);
   const [recent, setRecent] = useState(recentSearches);
 
-  const trimmed = query.trim();
-  const base = trimmed ? searchProducts(trimmed) : tag ? productsByTag(tag) : [];
-  const results = applyFilters([...base], filters);
-  const showResults = trimmed.length > 0 || tag !== undefined;
-  const page = usePagedList(results, `${trimmed}|${tag ?? ''}|${JSON.stringify(filters)}`);
+  const typing = query.trim() !== submitted.trim() && query.trim().length > 0;
+  const debounced = useDebounced(query.trim(), 300);
+  const suggestions = useAsync(
+    (signal) => (typing && debounced.length > 1 ? shop.catalog.suggestions(debounced, signal) : Promise.resolve([])),
+    [typing, debounced],
+  );
 
-  const lower = trimmed.toLowerCase();
-  const brandMatches = lower.length > 1 ? brands.filter((b) => b.name.toLowerCase().includes(lower)) : [];
-  const categoryMatches =
-    lower.length > 1
-      ? categories.flatMap((c) => [
-          ...(c.name.toLowerCase().includes(lower) ? [{ category: c, sub: undefined }] : []),
-          ...c.subcategories
-            .filter((s) => s.name.toLowerCase().includes(lower))
-            .map((s) => ({ category: c, sub: s })),
-        ])
-      : [];
-
-  function runSearch(term: string) {
-    setQuery(term);
-    setTag(undefined);
-    rememberSearch(term);
+  function run(term: string) {
+    const clean = term.trim();
+    if (!clean) return;
+    setQuery(clean);
+    setSubmitted(clean);
+    remember(clean);
     setRecent(recentSearches);
   }
 
@@ -87,22 +110,30 @@ export default function SearchScreen() {
             <Icon name={Icons.back} color={theme.text} size={18} weight="semibold" />
           </Pressable>
           <TextInput
-            autoFocus={!params.tag}
+            autoFocus={!initialQuery}
             value={query}
             onChangeText={(text) => {
               setQuery(text);
-              if (text) setTag(undefined);
+              if (!text.trim()) setSubmitted('');
             }}
-            onSubmitEditing={() => runSearch(query)}
-            placeholder={tag ? `Search in ${TAG_TITLES[tag].toLowerCase()}` : 'Search products, brands, categories'}
+            onSubmitEditing={() => run(query)}
+            placeholder="Search products and brands"
             placeholderTextColor={theme.textMuted}
             selectionColor={theme.primary}
             returnKeyType="search"
             autoCorrect={false}
             style={[styles.input, { color: theme.text }]}
           />
-          {query.length > 0 ? (
-            <Pressable accessibilityLabel="Clear search" hitSlop={10} onPress={() => setQuery('')}>
+          {suggestions.loading && typing && debounced.length > 1 ? (
+            <ActivityIndicator size="small" color={theme.primary} />
+          ) : query.length > 0 ? (
+            <Pressable
+              accessibilityLabel="Clear search"
+              hitSlop={10}
+              onPress={() => {
+                setQuery('');
+                setSubmitted('');
+              }}>
               <View style={[styles.clear, { backgroundColor: theme.surfaceMuted }]}>
                 <Icon name={Icons.close} color={theme.textSecondary} size={10} weight="bold" />
               </View>
@@ -113,157 +144,212 @@ export default function SearchScreen() {
         </View>
       </View>
 
-      {showResults ? (
-        <FlatList
-          data={page.visible}
-          onEndReached={page.loadMore}
-          onEndReachedThreshold={0.6}
-          initialNumToRender={6}
-          windowSize={7}
-          keyExtractor={(item) => item.id}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          contentContainerStyle={{ paddingBottom: itemCount > 0 ? CART_BAR_SPACE + Spacing.three : Spacing.five }}
-          ListHeaderComponent={
-            <View>
-              {(brandMatches.length > 0 || categoryMatches.length > 0) && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.matchRow}>
-                  {brandMatches.map((brand) => (
-                    <Pressable
-                      key={brand.id}
-                      onPress={() => router.push({ pathname: '/brand/[id]', params: { id: brand.id } })}
-                      style={[styles.match, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                      <BrandMark brand={brand} size={28} />
-                      <View>
-                        <AppText variant="captionStrong">{brand.name}</AppText>
-                        <AppText variant="micro" color="textMuted">BRAND</AppText>
-                      </View>
-                    </Pressable>
-                  ))}
-                  {categoryMatches.map(({ category, sub }) => (
-                    <Pressable
-                      key={`${category.id}-${sub?.id ?? 'all'}`}
-                      onPress={() =>
-                        router.push({
-                          pathname: '/category/[id]',
-                          params: sub ? { id: category.id, sub: sub.id } : { id: category.id },
-                        })
-                      }
-                      style={[styles.match, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                      <View style={[styles.matchIcon, { backgroundColor: category.tint }]}>
-                        <Icon name={Icons.categories} color="#6B655E" size={14} />
-                      </View>
-                      <View>
-                        <AppText variant="captionStrong">{sub?.name ?? category.name}</AppText>
-                        <AppText variant="micro" color="textMuted">CATEGORY</AppText>
-                      </View>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-              <FilterBar filters={filters} onChange={setFilters} brands={brandsIn(base)} />
-              <View style={styles.resultsHeading}>
-                <AppText variant="subheading">
-                  {tag && !trimmed ? TAG_TITLES[tag] : `Results for “${trimmed}”`}
-                </AppText>
-                <AppText variant="caption" color="textMuted">
-                  {plural(results.length, 'product')}
-                </AppText>
-              </View>
-            </View>
-          }
-          renderItem={({ item }) => <ProductRow product={item} />}
-          ListFooterComponent={
-            page.hasMore ? <ProductRowSkeleton /> : results.length > 0 ? <EndOfList total={results.length} /> : null
-          }
-          ListEmptyComponent={
-            <EmptyState
-              icon={Icons.search}
-              title="No matches"
-              message={
-                base.length > 0
-                  ? 'Your filters hid every result. Try clearing them.'
-                  : 'Check the spelling or try a broader term like “cooker” or “bottle”.'
-              }
-              action={base.length > 0 ? { label: 'Clear filters', onPress: () => setFilters(EMPTY_FILTERS) } : undefined}
-            />
-          }
+      {typing ? (
+        <Suggestions
+          query={query.trim()}
+          items={suggestions.data ?? []}
+          loading={suggestions.loading && debounced.length > 1}
+          onSearch={() => run(query)}
         />
+      ) : submitted ? (
+        <Results query={submitted} bottomPadding={itemCount > 0 ? CART_BAR_SPACE + Spacing.three : Spacing.five} />
       ) : (
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.discover}>
-          {recent.length > 0 && (
-            <View style={styles.block}>
-              <SectionHeader
-                title="Recent searches"
-                actionLabel="Clear"
-                onAction={() => {
-                  recentSearches = [];
-                  setRecent([]);
-                }}
-              />
-              <View style={styles.wrap}>
-                {recent.map((term) => (
-                  <Pressable
-                    key={term}
-                    onPress={() => runSearch(term)}
-                    style={[styles.pill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                    <Icon name={Icons.history} color={theme.textMuted} size={14} />
-                    <AppText variant="caption">{term}</AppText>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          )}
-
-          <View style={styles.block}>
-            <SectionHeader title="Trending in wholesale" />
-            <View style={styles.wrap}>
-              {trendingSearches.map((term) => (
-                <Pressable
-                  key={term}
-                  onPress={() => runSearch(term)}
-                  style={[styles.pill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                  <Icon name={Icons.trending} color={theme.primary} size={14} />
-                  <AppText variant="caption">{term}</AppText>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.block}>
-            <SectionHeader title="Browse categories" />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hRow}>
-              {categories.map((category) => (
-                <CategoryTile
-                  key={category.id}
-                  label={category.name}
-                  image={category.image}
-                  tint={category.tint}
-                  width={84}
-                  onPress={() => router.push({ pathname: '/category/[id]', params: { id: category.id } })}
-                />
-              ))}
-            </ScrollView>
-          </View>
-
-          <View style={styles.block}>
-            <SectionHeader title="Popular brands" onAction={() => router.push('/brands')} />
-            <View style={styles.wrap}>
-              {brands.map((brand) => (
-                <Pressable
-                  key={brand.id}
-                  onPress={() => router.push({ pathname: '/brand/[id]', params: { id: brand.id } })}
-                  style={[styles.brandPill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                  <BrandMark brand={brand} size={24} />
-                  <AppText variant="captionStrong">{brand.name}</AppText>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        </ScrollView>
+        <Discover
+          recent={recent}
+          onPick={run}
+          onClearRecent={() => {
+            recentSearches = [];
+            setRecent([]);
+          }}
+        />
       )}
       <CartBar />
     </View>
+  );
+}
+
+function useDebounced<T>(value: T, ms: number) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return debounced;
+}
+
+function Suggestions({
+  query,
+  items,
+  loading,
+  onSearch,
+}: {
+  query: string;
+  items: { id: string; name: string }[];
+  loading: boolean;
+  onSearch: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <ScrollView keyboardShouldPersistTaps="handled">
+      <Pressable onPress={onSearch} style={[styles.suggestion, { borderBottomColor: theme.border }]}>
+        <Icon name={Icons.search} color={theme.primary} size={16} />
+        <AppText variant="bodyStrong" style={styles.flex}>
+          Search for “{query}”
+        </AppText>
+        <Icon name={Icons.chevronRight} color={theme.textMuted} size={12} />
+      </Pressable>
+      {items.map((item) => (
+        <Pressable
+          key={item.id}
+          onPress={() => router.push({ pathname: '/product/[id]', params: { id: item.id } })}
+          style={({ pressed }) => [
+            styles.suggestion,
+            { borderBottomColor: theme.border },
+            pressed && { backgroundColor: theme.surfaceMuted },
+          ]}>
+          <Icon name={Icons.box} color={theme.textMuted} size={16} />
+          <AppText numberOfLines={2} style={styles.flex}>
+            {item.name}
+          </AppText>
+        </Pressable>
+      ))}
+      {!loading && items.length === 0 && query.length > 1 && (
+        <AppText variant="caption" color="textMuted" style={styles.hint}>
+          No quick matches — press search to look through everything.
+        </AppText>
+      )}
+    </ScrollView>
+  );
+}
+
+function Results({ query, bottomPadding }: { query: string; bottomPadding: number }) {
+  const theme = useTheme();
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const list = useInfiniteList((page, signal) => shop.catalog.search(query, page, signal), query);
+  const visible = applyLocalFilters([...list.items], filters);
+
+  return (
+    <FlatList
+      data={visible}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => <ProductRow product={item} />}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      onEndReached={list.loadMore}
+      onEndReachedThreshold={0.6}
+      initialNumToRender={6}
+      windowSize={7}
+      refreshControl={
+        <RefreshControl refreshing={list.refreshing} onRefresh={list.refresh} tintColor={theme.primary} colors={[theme.primary]} />
+      }
+      contentContainerStyle={{ paddingBottom: bottomPadding }}
+      ListHeaderComponent={
+        <View>
+          <FilterBar filters={filters} onChange={setFilters} groups={[]} showPrice={false} />
+          <View style={styles.resultsHeading}>
+            <AppText variant="subheading">Results for “{query}”</AppText>
+            {!list.loading && (
+              <AppText variant="caption" color="textMuted">
+                {list.items.length}
+                {list.hasMore ? '+' : ''} found
+              </AppText>
+            )}
+          </View>
+        </View>
+      }
+      ListEmptyComponent={
+        list.loading ? null : list.error ? (
+          <ErrorState message={list.error} onRetry={list.retry} />
+        ) : list.items.length > 0 ? (
+          <EmptyState
+            icon={Icons.filter}
+            title="No products match"
+            message="Your filters hid every result."
+            action={{ label: 'Clear filters', onPress: () => setFilters(EMPTY_FILTERS) }}
+          />
+        ) : (
+          <EmptyState icon={Icons.search} title="No matches" message="Check the spelling or try a broader word." />
+        )
+      }
+      ListFooterComponent={
+        list.loading ? (
+          <ProductRowSkeleton count={4} />
+        ) : list.error && list.items.length > 0 ? (
+          <ErrorState compact message={list.error} onRetry={list.retry} />
+        ) : list.loadingMore || (list.hasMore && visible.length > 0) ? (
+          <ProductRowSkeleton count={list.loadingMore ? 2 : 1} />
+        ) : visible.length > 0 ? (
+          <EndOfList label="That’s everything we found" />
+        ) : null
+      }
+    />
+  );
+}
+
+function Discover({ recent, onPick, onClearRecent }: { recent: string[]; onPick: (term: string) => void; onClearRecent: () => void }) {
+  const theme = useTheme();
+  const categories = useAsync(() => shop.catalog.categories(), []);
+  const brands = useAsync(() => shop.catalog.brands(), []);
+
+  return (
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.discover}>
+      {recent.length > 0 && (
+        <View style={styles.block}>
+          <SectionHeader title="Recent searches" actionLabel="Clear" onAction={onClearRecent} />
+          <View style={styles.wrap}>
+            {recent.map((term) => (
+              <Pressable
+                key={term}
+                onPress={() => onPick(term)}
+                style={[styles.pill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Icon name={Icons.history} color={theme.textMuted} size={14} />
+                <AppText variant="caption">{term}</AppText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {(categories.data?.length ?? 0) > 0 && (
+        <View style={styles.block}>
+          <SectionHeader title="Browse categories" onAction={() => router.navigate('/categories')} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hRow}>
+            {categories.data!.map((category, index) => (
+              <CategoryTile
+                key={category.code}
+                label={category.name}
+                uri={category.image}
+                tint={TILE_TINTS[index % TILE_TINTS.length]}
+                width={84}
+                onPress={() =>
+                  router.push({ pathname: '/category/[id]', params: { id: category.code, name: category.name } })
+                }
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {(brands.data?.length ?? 0) > 0 && (
+        <View style={styles.block}>
+          <SectionHeader title="Popular brands" onAction={() => router.push('/brands')} />
+          <View style={styles.wrap}>
+            {brands.data!.slice(0, 16).map((brand) => (
+              <Pressable
+                key={brand.name}
+                onPress={() => router.push({ pathname: '/brand/[name]', params: { name: brand.name } })}
+                style={[styles.brandPill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <BrandMark name={brand.name} size={24} />
+                <AppText variant="captionStrong">{brand.name}</AppText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {(categories.loading || brands.loading) && <ProductRowSkeleton count={2} />}
+      {categories.error && <ErrorState compact message={categories.error} onRetry={categories.reload} />}
+    </ScrollView>
   );
 }
 
@@ -289,7 +375,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     fontSize: 16,
-    // The field draws its own focus border; hide the browser outline on web.
+    // the field draws its own focus border; hide the browser outline on web
     outlineWidth: 0,
   },
   clear: {
@@ -299,27 +385,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  matchRow: {
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three - 4,
-  },
-  match: {
+  suggestion: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    paddingVertical: 6,
-    paddingLeft: 6,
-    paddingRight: Spacing.three - 4,
-    borderRadius: Radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    gap: Spacing.three - 4,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three - 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  matchIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+  hint: {
+    padding: Spacing.three,
   },
   resultsHeading: {
     flexDirection: 'row',

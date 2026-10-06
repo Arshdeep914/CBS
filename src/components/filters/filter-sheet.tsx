@@ -8,15 +8,24 @@ import { Chip } from '@/components/ui/chip';
 import { Icon, Icons } from '@/components/ui/icon';
 import { AppText } from '@/components/ui/text';
 import { Radius, Spacing } from '@/constants/theme';
-import type { Brand } from '@/data/catalog';
 import { useTheme } from '@/hooks/use-theme';
-import { EMPTY_FILTERS, QUICK_FILTERS, SORT_OPTIONS, type Filters } from '@/lib/filters';
+import {
+  EMPTY_FILTERS,
+  isSelected,
+  PRICE_RANGES,
+  QUICK_FILTERS,
+  SORT_OPTIONS,
+  toggleSelection,
+  type Filters,
+} from '@/lib/filters';
+import type { FilterGroup } from '@/services/types';
 
 type FilterSheetProps = {
   visible: boolean;
   mode: 'filters' | 'sort';
   filters: Filters;
-  brands: Brand[];
+  groups: FilterGroup[];
+  showPrice: boolean;
   onClose: () => void;
   onApply: (filters: Filters) => void;
 };
@@ -24,16 +33,13 @@ type FilterSheetProps = {
 export function FilterSheet(props: FilterSheetProps) {
   // Remount the body each time the sheet opens so the draft starts from the applied filters.
   return (
-    <BottomSheet
-      visible={props.visible}
-      title={props.mode === 'sort' ? 'Sort by' : 'Filters'}
-      onClose={props.onClose}>
+    <BottomSheet visible={props.visible} title={props.mode === 'sort' ? 'Sort by' : 'Filters'} onClose={props.onClose}>
       {props.visible && <FilterSheetBody {...props} />}
     </BottomSheet>
   );
 }
 
-function FilterSheetBody({ mode, filters, brands, onApply }: FilterSheetProps) {
+function FilterSheetBody({ mode, filters, groups, showPrice, onApply }: FilterSheetProps) {
   const theme = useTheme();
   const [draft, setDraft] = useState<Filters>(filters);
 
@@ -60,12 +66,8 @@ function FilterSheetBody({ mode, filters, brands, onApply }: FilterSheetProps) {
     );
   }
 
-  function toggleBrand(id: string) {
-    setDraft((d) => ({
-      ...d,
-      brandIds: d.brandIds.includes(id) ? d.brandIds.filter((b) => b !== id) : [...d.brandIds, id],
-    }));
-  }
+  const brandGroup = groups.find((g) => g.code.toUpperCase() === 'BRAND');
+  const otherGroups = groups.filter((g) => g !== brandGroup);
 
   return (
     <>
@@ -96,36 +98,54 @@ function FilterSheetBody({ mode, filters, brands, onApply }: FilterSheetProps) {
               onPress={() =>
                 setDraft((d) => ({
                   ...d,
-                  quick: d.quick.includes(filter.id)
-                    ? d.quick.filter((q) => q !== filter.id)
-                    : [...d.quick, filter.id],
+                  quick: d.quick.includes(filter.id) ? d.quick.filter((q) => q !== filter.id) : [...d.quick, filter.id],
                 }))
               }
             />
           ))}
         </View>
 
-        {brands.length > 1 && (
+        {showPrice && (
           <>
             <AppText variant="overline" color="textMuted">
-              BRANDS
+              PRICE
+            </AppText>
+            <View style={styles.wrap}>
+              {PRICE_RANGES.map((range) => (
+                <Chip
+                  key={range.label}
+                  label={range.label}
+                  selected={draft.price?.label === range.label}
+                  onPress={() =>
+                    setDraft((d) => ({ ...d, price: d.price?.label === range.label ? null : range }))
+                  }
+                />
+              ))}
+            </View>
+          </>
+        )}
+
+        {brandGroup && brandGroup.options.length > 1 && (
+          <>
+            <AppText variant="overline" color="textMuted">
+              {brandGroup.name.toUpperCase()}
             </AppText>
             <View style={[styles.brandList, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              {brands.map((brand, index) => {
-                const checked = draft.brandIds.includes(brand.id);
+              {brandGroup.options.map((name, index) => {
+                const checked = isSelected(draft, brandGroup.code, name);
                 return (
                   <Pressable
-                    key={brand.id}
+                    key={name}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked }}
-                    onPress={() => toggleBrand(brand.id)}
+                    onPress={() => setDraft((d) => toggleSelection(d, brandGroup.code, name))}
                     style={[
                       styles.brandRow,
                       index > 0 && { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth },
                     ]}>
-                    <BrandMark brand={brand} size={32} />
+                    <BrandMark name={name} size={32} />
                     <AppText variant="bodyStrong" style={styles.flex}>
-                      {brand.name}
+                      {name}
                     </AppText>
                     <View
                       style={[
@@ -143,6 +163,24 @@ function FilterSheetBody({ mode, filters, brands, onApply }: FilterSheetProps) {
             </View>
           </>
         )}
+
+        {otherGroups.map((group) => (
+          <View key={group.code}>
+            <AppText variant="overline" color="textMuted" style={styles.groupTitle}>
+              {group.name.toUpperCase()}
+            </AppText>
+            <View style={styles.wrap}>
+              {group.options.map((option) => (
+                <Chip
+                  key={option}
+                  label={option}
+                  selected={isSelected(draft, group.code, option)}
+                  onPress={() => setDraft((d) => toggleSelection(d, group.code, option))}
+                />
+              ))}
+            </View>
+          </View>
+        ))}
       </ScrollView>
       <View style={[styles.footer, { borderTopColor: theme.border }]}>
         <View style={styles.flex}>
@@ -170,10 +208,14 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     marginBottom: Spacing.three,
   },
+  groupTitle: {
+    marginBottom: Spacing.three - 4,
+  },
   brandList: {
     borderRadius: Radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
+    marginBottom: Spacing.three,
   },
   brandRow: {
     flexDirection: 'row',

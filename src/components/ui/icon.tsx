@@ -90,4 +90,6 @@ export const Icons = {
   verified: { ios: 'checkmark.seal.fill', android: 'verified' },
   premium: { ios: 'crown.fill', android: 'workspace_premium' },
   gift: { ios: 'gift', android: 'redeem' },
+  heart: { ios: 'heart', android: 'favorite_border' },
+  heartFill: { ios: 'heart.fill', android: 'favorite' },
 } satisfies Record<string, IconName>;

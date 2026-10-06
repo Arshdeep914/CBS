@@ -3,90 +3,152 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { errorMessage } from '@/api/client';
 import { BrandMark } from '@/components/brand-mark';
 import { ProductRail } from '@/components/home/product-rail';
 import { AddButton } from '@/components/product/add-button';
+import { WishlistButton } from '@/components/product/wishlist-button';
+import { Price } from '@/components/product/price';
 import { RemoteImage } from '@/components/product/product-image';
 import { RatingBadge } from '@/components/product/rating-badge';
-import { TagBadge } from '@/components/product/tag-badge';
+import { ProductDetailSkeleton } from '@/components/product/skeletons';
 import { Button } from '@/components/ui/button';
-import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
 import { Icon, Icons, type IconName } from '@/components/ui/icon';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { AppText } from '@/components/ui/text';
+import { toast } from '@/components/ui/toast';
 import { MaxFormWidth, Radius, Spacing } from '@/constants/theme';
-import {
-  discountPercent,
-  getBrand,
-  getCategory,
-  getProduct,
-  productsByBrand,
-  similarProducts,
-  unitPriceFor,
-} from '@/data/catalog';
+import { useAsync } from '@/hooks/use-async';
 import { useTheme } from '@/hooks/use-theme';
 import { formatINR } from '@/lib/format';
-import { cartActions, useCartQuantity } from '@/store/cart';
+import { shop } from '@/services';
+import type { HomeSection, ProductDetail, ProductSummary } from '@/services/types';
+import { cartActions, useCartPending, useCartQuantity } from '@/store/cart';
+
+// "You may also like" draws on the home sections (the API has no related-products
+// endpoint); cache them briefly so browsing products doesn't refetch every time.
+let homeCache: { at: number; promise: Promise<HomeSection[]> } | null = null;
+function cachedHome() {
+  if (!homeCache || Date.now() - homeCache.at > 120_000) {
+    const promise = shop.catalog.home().catch((err) => {
+      homeCache = null;
+      throw err;
+    });
+    homeCache = { at: Date.now(), promise };
+  }
+  return homeCache.promise;
+}
 
 export default function ProductScreen() {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
+  const width = Math.min(windowWidth, 900);
   const { id } = useLocalSearchParams<{ id: string }>();
-  const product = getProduct(id);
-  const quantity = useCartQuantity(id);
-  const [imageIndex, setImageIndex] = useState(0);
+  const detail = useAsync((signal) => shop.catalog.product(id, signal), [id]);
 
-  if (!product) {
+  if (detail.loading) {
     return (
       <View style={[styles.flex, { backgroundColor: theme.background }]}>
-        <ScreenHeader title="Product" />
-        <EmptyState icon={Icons.box} title="Product not found" message="It may have been discontinued." />
+        <ScrollView scrollEnabled={false}>
+          <ProductDetailSkeleton width={width} />
+        </ScrollView>
+        <FloatingBack />
       </View>
     );
   }
 
-  const brand = getBrand(product.brandId);
-  const category = getCategory(product.categoryId);
-  const subcategory = category?.subcategories.find((s) => s.id === product.subcategoryId);
-  const width = Math.min(windowWidth, 900);
+  if (detail.error || !detail.data) {
+    return (
+      <View style={[styles.flex, { backgroundColor: theme.background }]}>
+        <ScreenHeader title="Product" />
+        <ErrorState message={detail.error ?? 'This product is not available right now.'} onRetry={detail.reload} />
+      </View>
+    );
+  }
+
+  // keyed so a different product starts with its own default variant
+  return <ProductView key={detail.data.id} product={detail.data} width={width} />;
+}
+
+function ProductView({ product, width }: { product: ProductDetail; width: number }) {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const [variantIndex, setVariantIndex] = useState(product.defaultVariantIndex);
+  const [imageIndex, setImageIndex] = useState(0);
+  const variant = product.variants[variantIndex] ?? product.variants[0];
   const imageHeight = Math.round(width * 0.92);
-  const unitPrice = unitPriceFor(product, Math.max(quantity, product.moq));
-  const margin = product.mrp - product.price;
-  const soldOut = product.stock === 'out-of-stock';
-  const moreFromBrand = productsByBrand(product.brandId).filter((p) => p.id !== product.id);
+
+  const related = useAsync(async () => {
+    const sections = await cachedHome();
+    const seen = new Set<string>([product.id, ...product.variants.map((v) => v.id)]);
+    return sections.flatMap((s) => s.products).filter((p) => !seen.has(p.id) && seen.add(p.id)).slice(0, 12);
+  }, [product.id]);
+
+  const cartItem = { id: variant.id, variationCode: variant.variationCode, isOutOfStock: variant.isOutOfStock, name: product.name };
+  // what the wishlist stores for this variant, so the saved row shows straight away
+  const summary: ProductSummary = {
+    id: variant.id,
+    variationCode: variant.variationCode,
+    name: variant.label ? `${product.name} (${variant.label})` : product.name,
+    brand: product.brand,
+    price: variant.price,
+    mrp: variant.mrp,
+    rating: variant.rating || product.rating,
+    image: variant.images[0] ?? null,
+    isOutOfStock: variant.isOutOfStock,
+  };
+  const quantity = useCartQuantity(variant.id);
+  const pending = useCartPending(variant.id);
+
+  function addToCart() {
+    cartActions
+      .add(cartItem)
+      .then(() => toast.show('Added to cart', 'success'))
+      .catch((err) => toast.show(errorMessage(err, "Couldn't add that to your cart."), 'error'));
+  }
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Gallery */}
-        <View style={{ height: imageHeight }}>
+        <View style={{ height: imageHeight, backgroundColor: '#FFFFFF' }}>
           <ScrollView
+            key={variant.id}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(event) => setImageIndex(Math.round(event.nativeEvent.contentOffset.x / width))}>
-            {product.images.map((image) => (
-              <RemoteImage key={image} image={image} width={width} height={imageHeight} dimmed={soldOut} />
+            onMomentumScrollEnd={(e) => setImageIndex(Math.round(e.nativeEvent.contentOffset.x / width))}>
+            {(variant.images.length > 0 ? variant.images : [null]).map((uri, index) => (
+              <RemoteImage
+                key={uri ?? index}
+                uri={uri}
+                width={width}
+                height={imageHeight}
+                fit="contain"
+                dimmed={variant.isOutOfStock}
+                style={styles.galleryImage}
+              />
             ))}
           </ScrollView>
           <View style={[styles.topBar, { top: insets.top + Spacing.two }]}>
             <RoundButton icon={Icons.back} label="Go back" onPress={() => router.back()} />
             <View style={styles.topRight}>
+              <WishlistButton product={summary} size={38} />
               <RoundButton
                 icon={Icons.share}
                 label="Share"
-                onPress={() => Share.share({ message: `${product.name} — ${formatINR(product.price)} on CBS Kitchenware` })}
+                onPress={() => Share.share({ message: `${product.name} — ${formatINR(variant.price)} at CBS Kitchenware` })}
               />
               <RoundButton icon={Icons.cart} label="Cart" onPress={() => router.push('/cart')} />
             </View>
           </View>
-          {product.images.length > 1 && (
+          {variant.images.length > 1 && (
             <View style={styles.dots}>
-              {product.images.map((image, index) => (
+              {variant.images.map((uri, index) => (
                 <View
-                  key={image}
-                  style={[styles.dot, index === imageIndex && styles.dotActive]}
+                  key={uri}
+                  style={[styles.dot, { backgroundColor: index === imageIndex ? theme.primary : theme.border }, index === imageIndex && styles.dotActive]}
                 />
               ))}
             </View>
@@ -94,201 +156,161 @@ export default function ProductScreen() {
         </View>
 
         <View style={[styles.sheet, { backgroundColor: theme.background }]}>
-          {/* Title block */}
+          {/* Title */}
           <View style={styles.block}>
-            <View style={styles.brandRow}>
-              {brand && (
-                <Pressable
-                  onPress={() => router.push({ pathname: '/brand/[id]', params: { id: brand.id } })}
-                  style={styles.brandLink}>
-                  <BrandMark brand={brand} size={28} />
-                  <AppText variant="captionStrong" color="primary">
-                    {brand.name}
-                  </AppText>
-                  <Icon name={Icons.chevronRight} color={theme.primary} size={10} weight="bold" />
-                </Pressable>
-              )}
-              <View style={styles.tags}>
-                {product.tags.slice(0, 2).map((tag) => (
-                  <TagBadge key={tag} tag={tag} />
-                ))}
-              </View>
-            </View>
-            <AppText variant="title">{product.name}</AppText>
-            <View style={styles.ratingRow}>
-              <RatingBadge rating={product.rating} size="md" />
-              <AppText variant="caption" color="textSecondary">
-                {product.ratingCount.toLocaleString('en-IN')} retailer ratings
-              </AppText>
-              <StockPill stock={product.stock} />
-            </View>
-            {category && subcategory && (
+            {product.brand && (
               <Pressable
-                onPress={() =>
-                  router.push({ pathname: '/category/[id]', params: { id: category.id, sub: subcategory.id } })
-                }>
-                <AppText variant="caption" color="textMuted">
-                  {category.name} › {subcategory.name}
+                onPress={() => router.push({ pathname: '/brand/[name]', params: { name: product.brand! } })}
+                style={styles.brandLink}>
+                <BrandMark name={product.brand} size={28} />
+                <AppText variant="captionStrong" color="primary">
+                  {product.brand}
                 </AppText>
+                <Icon name={Icons.chevronRight} color={theme.primary} size={10} weight="bold" />
               </Pressable>
             )}
+            <AppText variant="title">{product.name}</AppText>
+            <View style={styles.ratingRow}>
+              {product.rating > 0 && <RatingBadge rating={product.rating} size="md" />}
+              {product.reviewCount > 0 && (
+                <AppText variant="caption" color="textSecondary">
+                  {product.reviewCount.toLocaleString('en-IN')} ratings
+                </AppText>
+              )}
+              <StockPill outOfStock={variant.isOutOfStock} available={variant.available} />
+            </View>
           </View>
 
           {/* Price */}
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.priceRow}>
-              <AppText variant="display">{formatINR(product.price)}</AppText>
-              <AppText variant="caption" color="textSecondary">
-                per {product.unit.replace(/s$/, '')} · excl. GST
-              </AppText>
-            </View>
-            <View style={styles.priceRow}>
-              <AppText color="textMuted" style={styles.strike}>
-                MRP {formatINR(product.mrp)}
-              </AppText>
-              <View style={[styles.marginPill, { backgroundColor: theme.successSoft }]}>
-                <AppText variant="captionStrong" color="success">
-                  {discountPercent(product)}% margin · earn {formatINR(margin)}/{product.unit.replace(/s$/, '')}
-                </AppText>
-              </View>
-            </View>
-
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-            <AppText variant="overline" color="textMuted">
-              BULK PRICING
+            <Price price={variant.price} mrp={variant.mrp} size="lg" />
+            <AppText variant="caption" color="textSecondary">
+              Inclusive of all taxes
             </AppText>
-            {product.tiers.map((tier, index) => {
-              const next = product.tiers[index + 1];
-              const effectiveQty = Math.max(quantity, product.moq);
-              const active = effectiveQty >= tier.minQty && (!next || effectiveQty < next.minQty);
-              const saving = Math.round(((product.price - tier.price) / product.price) * 100);
-              return (
-                <Pressable
-                  key={tier.minQty}
-                  disabled={soldOut}
-                  onPress={() => cartActions.setQuantity(product, tier.minQty)}
-                  style={[
-                    styles.tier,
-                    { borderColor: active ? theme.primary : theme.border },
-                    active && { backgroundColor: theme.primarySoft },
-                  ]}>
-                  <View style={styles.flex}>
-                    <AppText variant="bodyStrong">
-                      {next ? `${tier.minQty}–${next.minQty - 1}` : `${tier.minQty}+`} {product.unit}
-                    </AppText>
-                    <AppText variant="caption" color="textMuted">
-                      {index === 0 ? 'Minimum order' : `Tap to order ${tier.minQty}`}
-                    </AppText>
-                  </View>
-                  {saving > 0 && (
-                    <AppText variant="captionStrong" color="success">
-                      Save {saving}%
-                    </AppText>
-                  )}
-                  <AppText variant="subheading">{formatINR(tier.price)}</AppText>
-                </Pressable>
-              );
-            })}
           </View>
 
-          {/* Trade facts */}
-          <View style={styles.facts}>
-            <Fact icon={Icons.box} label="MOQ" value={`${product.moq} ${product.unit}`} />
-            <Fact icon={Icons.store} label="Case pack" value={`${product.casePack} ${product.unit}`} />
-            <Fact icon={Icons.percent} label="GST" value={`${product.gstRate}%`} />
-            <Fact icon={Icons.truck} label="Dispatch" value={soldOut ? 'Restocking' : '24 hrs'} />
-          </View>
-
-          {/* Highlights */}
-          <View style={styles.block}>
-            <AppText variant="heading">Why retailers stock it</AppText>
-            {product.highlights.map((highlight) => (
-              <View key={highlight} style={styles.highlight}>
-                <View style={[styles.check, { backgroundColor: theme.successSoft }]}>
-                  <Icon name={Icons.check} color={theme.success} size={11} weight="bold" />
-                </View>
-                <AppText style={styles.flex}>{highlight}</AppText>
+          {/* Variants */}
+          {product.variants.length > 1 && (
+            <View style={styles.block}>
+              <AppText variant="heading">Choose an option</AppText>
+              <View style={styles.variants}>
+                {product.variants.map((v, index) => {
+                  const selected = index === variantIndex;
+                  return (
+                    <Pressable
+                      key={v.id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      onPress={() => {
+                        setVariantIndex(index);
+                        setImageIndex(0);
+                      }}
+                      style={[
+                        styles.variant,
+                        { borderColor: selected ? theme.primary : theme.border, backgroundColor: selected ? theme.primarySoft : theme.surface },
+                        v.isOutOfStock && styles.variantSoldOut,
+                      ]}>
+                      <AppText variant="bodyStrong" color={selected ? 'primary' : 'text'} numberOfLines={1}>
+                        {v.label ?? `Option ${index + 1}`}
+                      </AppText>
+                      <AppText variant="caption" color="textSecondary">
+                        {v.isOutOfStock ? 'Sold out' : formatINR(v.price)}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
               </View>
-            ))}
-          </View>
+            </View>
+          )}
 
-          {/* Specs */}
-          <View style={styles.block}>
-            <AppText variant="heading">Specifications</AppText>
-            <View style={[styles.specs, { borderColor: theme.border }]}>
-              {product.specs.map((spec, index) => (
-                <View
-                  key={spec.label}
-                  style={[
-                    styles.specRow,
-                    { backgroundColor: index % 2 === 0 ? theme.surface : theme.background },
-                  ]}>
-                  <AppText variant="caption" color="textSecondary" style={styles.specLabel}>
-                    {spec.label}
-                  </AppText>
-                  <AppText variant="bodyStrong" style={styles.flex}>
-                    {spec.value}
-                  </AppText>
+          {/* Description */}
+          {product.description.length > 0 && (
+            <View style={styles.block}>
+              <AppText variant="heading">About this product</AppText>
+              {product.description.map((paragraph, index) => (
+                <View key={index} style={styles.highlight}>
+                  <View style={[styles.check, { backgroundColor: theme.successSoft }]}>
+                    <Icon name={Icons.check} color={theme.success} size={11} weight="bold" />
+                  </View>
+                  <AppText style={styles.flex}>{paragraph}</AppText>
                 </View>
               ))}
             </View>
-          </View>
-
-          {/* Assurance */}
-          <View style={[styles.assurance, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Assurance icon={Icons.truck} title="Free delivery" text="On orders above ₹25,000" />
-            <Assurance icon={Icons.refresh} title="Easy returns" text="7 days on damaged goods" />
-            <Assurance icon={Icons.shield} title="Genuine stock" text="Direct from brand" />
-          </View>
-        </View>
-
-        <View style={styles.rails}>
-          <ProductRail title="Similar products" products={similarProducts(product)} />
-          {brand && moreFromBrand.length > 0 && (
-            <ProductRail
-              title={`More from ${brand.name}`}
-              products={moreFromBrand.slice(0, 8)}
-              onSeeAll={() => router.push({ pathname: '/brand/[id]', params: { id: brand.id } })}
-            />
           )}
+
+          {/* Specifications */}
+          {product.attributes.length > 0 && (
+            <View style={styles.block}>
+              <AppText variant="heading">Specifications</AppText>
+              <View style={[styles.specs, { borderColor: theme.border }]}>
+                {product.attributes.map((attr, index) => (
+                  <View key={attr.name} style={[styles.specRow, { backgroundColor: index % 2 === 0 ? theme.surface : theme.background }]}>
+                    <AppText variant="caption" color="textSecondary" style={styles.specLabel}>
+                      {attr.name}
+                    </AppText>
+                    <AppText variant="bodyStrong" style={styles.flex}>
+                      {attr.values.join(', ')}
+                    </AppText>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <View style={[styles.assurance, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Assurance icon={Icons.truck} title="Fast delivery" text="Dispatched in 24–48 hrs" />
+            <Assurance icon={Icons.refresh} title="Easy returns" text="On damaged items" />
+            <Assurance icon={Icons.shield} title="Secure payment" text="UPI, cards & COD" />
+          </View>
         </View>
+
+        {(related.data?.length ?? 0) > 0 && (
+          <View style={styles.rails}>
+            <ProductRail title="You may also like" products={related.data!} />
+          </View>
+        )}
       </ScrollView>
 
       {/* Sticky purchase bar */}
-      <View
-        style={[
-          styles.bottomBar,
-          { backgroundColor: theme.surface, borderTopColor: theme.border, paddingBottom: insets.bottom + Spacing.two },
-        ]}>
+      <View style={[styles.bottomBar, { backgroundColor: theme.surface, borderTopColor: theme.border, paddingBottom: insets.bottom + Spacing.two }]}>
         <View style={styles.bottomInner}>
           {quantity > 0 ? (
             <>
-              <AddButton product={product} size="lg" />
+              <AddButton product={cartItem} size="lg" max={variant.available} />
               <View style={styles.flex}>
-                <Button title={`View cart · ${formatINR(unitPrice * quantity)}`} onPress={() => router.push('/cart')} />
+                <Button title="Go to cart" icon={Icons.cart} onPress={() => router.push('/cart')} />
               </View>
             </>
           ) : (
             <>
               <View style={styles.flex}>
-                <AppText variant="heading">{formatINR(product.price * product.moq)}</AppText>
+                <AppText variant="heading">{formatINR(variant.price)}</AppText>
                 <AppText variant="caption" color="textMuted">
-                  for {product.moq} {product.unit} (MOQ)
+                  {variant.isOutOfStock ? 'Currently unavailable' : 'Free delivery on eligible orders'}
                 </AppText>
               </View>
               <View style={styles.addWrap}>
                 <Button
-                  title={soldOut ? 'Out of stock' : 'Add to cart'}
-                  icon={soldOut ? undefined : Icons.cart}
-                  disabled={soldOut}
-                  onPress={() => cartActions.add(product)}
+                  title={variant.isOutOfStock ? 'Out of stock' : 'Add to cart'}
+                  icon={variant.isOutOfStock ? undefined : Icons.cart}
+                  disabled={variant.isOutOfStock}
+                  loading={pending}
+                  onPress={addToCart}
                 />
               </View>
             </>
           )}
         </View>
       </View>
+    </View>
+  );
+}
+
+function FloatingBack() {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.topBar, { top: insets.top + Spacing.two }]}>
+      <RoundButton icon={Icons.back} label="Go back" onPress={() => router.back()} />
     </View>
   );
 }
@@ -301,33 +323,18 @@ function RoundButton({ icon, label, onPress }: { icon: IconName; label: string; 
   );
 }
 
-function StockPill({ stock }: { stock: 'in-stock' | 'low-stock' | 'out-of-stock' }) {
+function StockPill({ outOfStock, available }: { outOfStock: boolean; available: number | null }) {
   const theme = useTheme();
-  const config = {
-    'in-stock': { label: 'In stock', bg: theme.successSoft, fg: theme.success },
-    'low-stock': { label: 'Few cartons left', bg: theme.warningSoft, fg: theme.warning },
-    'out-of-stock': { label: 'Out of stock', bg: theme.primarySoft, fg: theme.danger },
-  }[stock];
-
+  const low = !outOfStock && available !== null && available > 0 && available <= 5;
+  const config = outOfStock
+    ? { label: 'OUT OF STOCK', bg: theme.primarySoft, fg: theme.danger }
+    : low
+      ? { label: `ONLY ${available} LEFT`, bg: theme.warningSoft, fg: theme.warning }
+      : { label: 'IN STOCK', bg: theme.successSoft, fg: theme.success };
   return (
     <View style={[styles.stockPill, { backgroundColor: config.bg }]}>
       <AppText variant="micro" color={config.fg}>
-        {config.label.toUpperCase()}
-      </AppText>
-    </View>
-  );
-}
-
-function Fact({ icon, label, value }: { icon: IconName; label: string; value: string }) {
-  const theme = useTheme();
-  return (
-    <View style={[styles.fact, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <Icon name={icon} color={theme.primary} size={18} />
-      <AppText variant="micro" color="textMuted">
-        {label.toUpperCase()}
-      </AppText>
-      <AppText variant="captionStrong" numberOfLines={1}>
-        {value}
+        {config.label}
       </AppText>
     </View>
   );
@@ -356,6 +363,9 @@ const styles = StyleSheet.create({
   },
   center: {
     textAlign: 'center',
+  },
+  galleryImage: {
+    backgroundColor: '#FFFFFF',
   },
   topBar: {
     position: 'absolute',
@@ -388,11 +398,9 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
   },
   dotActive: {
     width: 18,
-    backgroundColor: '#FFFFFF',
   },
   sheet: {
     marginTop: -22,
@@ -405,19 +413,10 @@ const styles = StyleSheet.create({
   block: {
     gap: Spacing.two,
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   brandLink: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-  },
-  tags: {
-    flexDirection: 'row',
-    gap: 4,
   },
   ratingRow: {
     flexDirection: 'row',
@@ -434,51 +433,28 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     borderRadius: Radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.two,
+    gap: Spacing.one,
   },
-  priceRow: {
+  variants: {
     flexDirection: 'row',
-    alignItems: 'center',
     flexWrap: 'wrap',
     gap: Spacing.two,
   },
-  strike: {
-    textDecorationLine: 'line-through',
-  },
-  marginPill: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginVertical: Spacing.two,
-  },
-  tier: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three - 4,
-    paddingHorizontal: Spacing.three - 4,
+  variant: {
+    minWidth: 96,
+    maxWidth: '48%',
+    paddingHorizontal: Spacing.three - 2,
     paddingVertical: Spacing.two + 2,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-  },
-  facts: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-  },
-  fact: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 3,
-    paddingVertical: Spacing.three - 4,
-    paddingHorizontal: 4,
     borderRadius: Radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1.5,
+    gap: 2,
+  },
+  variantSoldOut: {
+    opacity: 0.55,
   },
   highlight: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: Spacing.two + 2,
   },
   check: {
@@ -487,6 +463,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 1,
   },
   specs: {
     borderRadius: Radius.md,
@@ -524,7 +501,6 @@ const styles = StyleSheet.create({
   },
   rails: {
     paddingTop: Spacing.five,
-    gap: Spacing.five - 4,
   },
   bottomBar: {
     position: 'absolute',

@@ -1,37 +1,87 @@
-import { createContext, use, useState, type ReactNode } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+import { createContext, use, useEffect, useState, type ReactNode } from 'react';
 
-export type SessionStatus = 'signed-out' | 'pending' | 'approved';
+import { onSessionExpired } from '@/api/client';
+import { toast } from '@/components/ui/toast';
+import { clearSession, loadSession, saveSession } from '@/lib/session-storage';
+import { shop } from '@/services';
+import type { UserProfile } from '@/services/types';
+import { addressActions } from '@/store/addresses';
+import { cartActions } from '@/store/cart';
+import { clearOrderCache } from '@/store/orders';
+import { wishlistActions } from '@/store/wishlist';
 
-type SessionState = {
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+export type SessionStatus = 'loading' | 'signed-out' | 'signed-in';
+
+type SessionContextValue = {
   status: SessionStatus;
-  email?: string;
-  requestedAt?: string;
+  user: UserProfile | null;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
 };
 
-type SessionContextValue = SessionState & {
-  submitSignIn: (email: string) => void;
-  approve: () => void;
-  signOut: () => void;
-};
+/** The signed-in user's server-side state, fetched in the background. */
+function loadAccountData() {
+  cartActions.refresh().catch(() => {});
+  wishlistActions.refresh().catch(() => {});
+}
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 /**
- * Demo session. Any credentials are accepted and the admin "approves" the
- * device automatically — see `src/app/pending.tsx`.
+ * Restores the saved session at launch (the splash screen stays up meanwhile),
+ * and owns sign-in / sign-out. The cart and wishlist follow the session: they
+ * load on sign-in and are wiped on sign-out.
  */
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<SessionState>({ status: 'signed-out' });
+  const [status, setStatus] = useState<SessionStatus>('loading');
+  const [user, setUser] = useState<UserProfile | null>(null);
 
-  const value: SessionContextValue = {
-    ...session,
-    submitSignIn: (email) =>
-      setSession({ status: 'pending', email, requestedAt: new Date().toISOString() }),
-    approve: () => setSession((current) => ({ ...current, status: 'approved' })),
-    signOut: () => setSession({ status: 'signed-out' }),
-  };
+  useEffect(() => {
+    let cancelled = false;
+    loadSession().then((session) => {
+      if (cancelled) return;
+      setUser(session?.user ?? null);
+      setStatus(session ? 'signed-in' : 'signed-out');
+      if (session) loadAccountData();
+      SplashScreen.hideAsync().catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  return <SessionContext value={value}>{children}</SessionContext>;
+  async function signOut() {
+    await clearSession();
+    cartActions.reset();
+    wishlistActions.reset();
+    addressActions.reset();
+    clearOrderCache();
+    setUser(null);
+    setStatus('signed-out');
+  }
+
+  // the backend rejected our token mid-session
+  useEffect(
+    () =>
+      onSessionExpired(() => {
+        toast.show('Your session has expired. Please sign in again.', 'error');
+        void signOut();
+      }),
+    [],
+  );
+
+  async function signIn(email: string, password: string) {
+    const result = await shop.auth.signIn(email, password);
+    await saveSession({ jwt: result.jwt, pksoftToken: result.pksoftToken, user: result.user });
+    setUser(result.user);
+    setStatus('signed-in');
+    loadAccountData();
+  }
+
+  return <SessionContext value={{ status, user, signIn, signOut }}>{children}</SessionContext>;
 }
 
 export function useSession() {

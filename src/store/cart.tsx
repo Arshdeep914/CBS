@@ -1,83 +1,175 @@
 import { useSyncExternalStore } from 'react';
 
-import { getProduct, type Product } from '@/data/catalog';
-import { computeBill, priceLines, type CartLine } from '@/lib/pricing';
+import { Env } from '@/config/env';
+import { shop } from '@/services';
+import type { CartLine, PaymentModes, ProductSummary } from '@/services/types';
 
 /**
- * Cart state lives outside React so components can subscribe to just the slice
- * they need — tapping ADD on one product only re-renders that product's button
- * and the cart bar, not every card on screen.
+ * The cart lives on the server; this store mirrors it.
+ *
+ * - Lines are keyed by mappingCode (`id`), which every mutation is addressed by.
+ * - Mutations are optimistic, and each line carries its own pending flag so one
+ *   row can show a spinner while the rest stay interactive.
+ * - `status` only covers the first load; later refreshes keep rows on screen.
+ *
+ * State lives outside React so each ADD button subscribes to just its own line.
  */
+export type CartStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 type CartState = {
+  status: CartStatus;
   lines: CartLine[];
-  couponApplied: boolean;
+  paymentModes: PaymentModes;
+  /** ids with a request in flight */
+  pending: ReadonlySet<string>;
 };
 
-let state: CartState = { lines: [], couponApplied: false };
+const INITIAL: CartState = {
+  status: 'idle',
+  lines: [],
+  paymentModes: { cash: true, online: true },
+  pending: new Set(),
+};
+
+let state: CartState = INITIAL;
 const listeners = new Set<() => void>();
 
-function setState(next: CartState) {
-  state = next;
+function setState(patch: Partial<CartState>) {
+  state = { ...state, ...patch };
   listeners.forEach((listener) => listener());
 }
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
-function quantityOf(productId: string) {
-  return state.lines.find((l) => l.productId === productId)?.quantity ?? 0;
+function setPending(id: string, active: boolean) {
+  const next = new Set(state.pending);
+  if (active) next.add(id);
+  else next.delete(id);
+  setState({ pending: next });
 }
 
-function setQuantity(product: Product, quantity: number) {
-  const { lines } = state;
-  if (quantity < product.moq) {
-    setState({ ...state, lines: lines.filter((l) => l.productId !== product.id) });
-    return;
+function patchLine(id: string, patch: Partial<CartLine>) {
+  setState({ lines: state.lines.map((line) => (line.id === id ? { ...line, ...patch } : line)) });
+}
+
+/*
+ * One refresh at a time. A refresh requested while another is in flight is
+ * queued to run once more afterwards — not dropped — so a mutation that lands
+ * mid-refresh is always reflected. (The web storefront skips it instead, which
+ * can leave a just-added item missing.)
+ */
+let inFlight: Promise<void> | null = null;
+let rerun = false;
+
+async function refresh(): Promise<void> {
+  if (inFlight) {
+    rerun = true;
+    return inFlight;
   }
-  const exists = lines.some((l) => l.productId === product.id);
-  setState({
-    ...state,
-    lines: exists
-      ? lines.map((l) => (l.productId === product.id ? { ...l, quantity } : l))
-      : [...lines, { productId: product.id, quantity }],
-  });
+  if (state.status === 'idle' || state.status === 'error') setState({ status: 'loading' });
+
+  inFlight = (async () => {
+    do {
+      rerun = false;
+      try {
+        const cart = await shop.cart.fetch();
+        setState({ status: 'ready', lines: cart.lines, paymentModes: cart.paymentModes });
+      } catch (err) {
+        // keep whatever is on screen; only a failed first load shows an error
+        if (state.status !== 'ready') setState({ status: 'error' });
+        if (!rerun) throw err;
+      }
+    } while (rerun);
+  })();
+
+  try {
+    await inFlight;
+  } finally {
+    inFlight = null;
+  }
+}
+
+async function remove(id: string) {
+  setPending(id, true);
+  const previous = state.lines;
+  setState({ lines: previous.filter((line) => line.id !== id) });
+  try {
+    await shop.cart.remove(id);
+  } catch (err) {
+    // the server is the source of truth on what "put it back" means
+    await refresh().catch(() => setState({ lines: previous }));
+    throw err;
+  } finally {
+    setPending(id, false);
+  }
 }
 
 export const cartActions = {
-  quantityOf,
-  setQuantity,
-  /** Adds the product at its minimum order quantity. */
-  add: (product: Product) => setQuantity(product, product.moq),
-  /** Steps up by one case pack. */
-  increment: (product: Product) => setQuantity(product, quantityOf(product.id) + product.casePack),
-  /** Steps down by one case pack; removes the line below the MOQ. */
-  decrement: (product: Product) => {
-    const next = quantityOf(product.id) - product.casePack;
-    setQuantity(product, next < product.moq ? 0 : next);
-  },
-  remove: (productId: string) =>
-    setState({ ...state, lines: state.lines.filter((l) => l.productId !== productId) }),
-  /** Merges lines into the cart, e.g. for "Reorder". Skips out-of-stock products. */
-  addMany: (incoming: CartLine[]) => {
-    const next = [...state.lines];
-    for (const line of incoming) {
-      const product = getProduct(line.productId);
-      if (!product || product.stock === 'out-of-stock') continue;
-      const index = next.findIndex((l) => l.productId === line.productId);
-      if (index >= 0) next[index] = { ...next[index], quantity: next[index].quantity + line.quantity };
-      else next.push({ ...line, quantity: Math.max(line.quantity, product.moq) });
+  refresh,
+
+  /** Adds one of a product, then reloads the bag so totals come from the server. */
+  async add(product: Pick<ProductSummary, 'id' | 'variationCode'>, qty = 1) {
+    setPending(product.id, true);
+    try {
+      await shop.cart.add(product.id, product.variationCode ?? '', qty);
+      await refresh();
+    } finally {
+      setPending(product.id, false);
     }
-    setState({ ...state, lines: next });
   },
-  setCouponApplied: (couponApplied: boolean) => setState({ ...state, couponApplied }),
-  clear: () => setState({ lines: [], couponApplied: false }),
+
+  async setQty(id: string, qty: number) {
+    if (qty <= 0) return remove(id);
+
+    setPending(id, true);
+    const before = state.lines.find((line) => line.id === id)?.qty ?? 0;
+    patchLine(id, { qty });
+    try {
+      const ack = await shop.cart.setQty(id, qty);
+      if (!ack.acknowledged) {
+        patchLine(id, { qty: before });
+        throw new Error("Couldn't update the quantity.");
+      }
+      // the server only echoes the touched row; patch just that line
+      if (ack.qty !== null && ack.qty !== qty) patchLine(id, { qty: ack.qty });
+    } catch (err) {
+      patchLine(id, { qty: before });
+      throw err;
+    } finally {
+      setPending(id, false);
+    }
+  },
+
+  remove,
+
+  /** Empties the local copy after an order, then confirms with the server. */
+  async afterOrder() {
+    setState({ lines: [] });
+    await refresh().catch(() => {});
+  },
+
+  /** Signed out — forget everything. */
+  reset() {
+    rerun = false;
+    setState(INITIAL);
+  },
 };
 
-/** Quantity of one product; re-renders only when that quantity changes. */
-export function useCartQuantity(productId: string) {
-  return useSyncExternalStore(subscribe, () => quantityOf(productId));
+/* ------------------------------------------------------------------ */
+/*  hooks                                                              */
+/* ------------------------------------------------------------------ */
+
+export function useCartQuantity(id: string) {
+  return useSyncExternalStore(subscribe, () => state.lines.find((line) => line.id === id)?.qty ?? 0);
+}
+
+export function useCartPending(id: string) {
+  return useSyncExternalStore(subscribe, () => state.pending.has(id));
 }
 
 /** Number of distinct products in the cart. */
@@ -85,15 +177,41 @@ export function useCartCount() {
   return useSyncExternalStore(subscribe, () => state.lines.length);
 }
 
-export function useCouponApplied() {
-  return useSyncExternalStore(subscribe, () => state.couponApplied);
+export function useCartState() {
+  return useSyncExternalStore(subscribe, () => state);
 }
 
-/** Priced cart lines plus the bill breakdown. */
-export function useCartSummary() {
-  const current = useSyncExternalStore(subscribe, () => state);
-  const priced = priceLines(current.lines);
-  const bill = computeBill(priced, current.couponApplied);
-  const unitCount = priced.reduce((sum, l) => sum + l.quantity, 0);
-  return { lines: priced, bill, itemCount: priced.length, unitCount };
+export type CartTotals = {
+  totalMrp: number;
+  subtotal: number;
+  savings: number;
+  platformFee: number;
+  total: number;
+  itemCount: number;
+  hasOutOfStock: boolean;
+};
+
+/** Derived from the lines every time — never hand-patched. */
+export function cartTotals(lines: CartLine[]): CartTotals {
+  let totalMrp = 0;
+  let subtotal = 0;
+  let itemCount = 0;
+  let hasOutOfStock = false;
+  for (const line of lines) {
+    const mrp = line.mrp && line.mrp > line.price ? line.mrp : line.price;
+    totalMrp += mrp * line.qty;
+    subtotal += line.price * line.qty;
+    itemCount += line.qty;
+    hasOutOfStock ||= line.isOutOfStock;
+  }
+  const platformFee = subtotal > 0 ? Env.platformFee : 0;
+  return {
+    totalMrp,
+    subtotal,
+    savings: totalMrp - subtotal,
+    platformFee,
+    total: subtotal + platformFee,
+    itemCount,
+    hasOutOfStock,
+  };
 }

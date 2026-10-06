@@ -6,17 +6,24 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from '
 import { Icon, Icons } from '@/components/ui/icon';
 import { AppText } from '@/components/ui/text';
 import { Radius, Spacing } from '@/constants/theme';
-import { trendingSearches } from '@/data/catalog';
 import { useTheme } from '@/hooks/use-theme';
 
+const FALLBACK_HINTS = ['products', 'brands', 'categories'];
+
+type SearchLauncherProps = {
+  /** Words to rotate through, e.g. the store's category names. */
+  hints?: string[];
+};
+
 /** Tappable search field with a rotating placeholder, like Zomato's home search. */
-export function SearchLauncher() {
+export function SearchLauncher({ hints }: SearchLauncherProps) {
   const theme = useTheme();
+  const words = hints && hints.length > 0 ? hints : FALLBACK_HINTS;
   const [index, setIndex] = useState(0);
   const progress = useSharedValue(1);
 
   useEffect(() => {
-    const timer = setInterval(() => setIndex((i) => (i + 1) % trendingSearches.length), 2600);
+    const timer = setInterval(() => setIndex((i) => i + 1), 2600);
     return () => clearInterval(timer);
   }, []);
 
@@ -42,7 +49,7 @@ export function SearchLauncher() {
         <AppText color="textMuted">Search </AppText>
         <Animated.View style={[styles.word, wordStyle]}>
           <AppText color="textMuted" numberOfLines={1}>
-            “{trendingSearches[index].toLowerCase()}”
+            “{words[index % words.length].toLowerCase()}”
           </AppText>
         </Animated.View>
       </View>

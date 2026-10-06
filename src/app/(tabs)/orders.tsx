@@ -1,23 +1,24 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
-import { isActiveOrder, OrderStatusPill } from '@/components/order-status-pill';
+import { OrderStatusPill } from '@/components/order-status-pill';
 import { RemoteImage } from '@/components/product/product-image';
-import { Button } from '@/components/ui/button';
+import { CardListSkeleton, EndOfList } from '@/components/product/skeletons';
 import { Chip } from '@/components/ui/chip';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Icon, Icons, type IconName } from '@/components/ui/icon';
+import { ErrorState } from '@/components/ui/error-state';
+import { Icon, Icons } from '@/components/ui/icon';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { AppText } from '@/components/ui/text';
 import { MaxFormWidth, Radius, Spacing } from '@/constants/theme';
-import { getProduct } from '@/data/catalog';
-import type { Order } from '@/data/orders';
+import { useInfiniteList } from '@/hooks/use-infinite-list';
 import { useTheme } from '@/hooks/use-theme';
-import { formatCompactINR, formatDate, formatINR, formatShortDate, plural } from '@/lib/format';
-import { cartActions } from '@/store/cart';
-import { useOrders } from '@/store/orders';
+import { formatDate, formatINR, plural } from '@/lib/format';
 import { HOME_HREF } from '@/lib/routes';
+import { shop } from '@/services';
+import type { Order } from '@/services/types';
+import { cacheOrders, CANCELLED_CODES, isActiveOrder } from '@/store/orders';
 
 type Segment = 'all' | 'active' | 'delivered' | 'cancelled';
 
@@ -28,21 +29,39 @@ const SEGMENTS: { id: Segment; label: string }[] = [
   { id: 'cancelled', label: 'Cancelled' },
 ];
 
+const PAGE_SIZE = 10;
+
 export default function OrdersScreen() {
   const theme = useTheme();
-  const { orders } = useOrders();
   const [segment, setSegment] = useState<Segment>('all');
+  const list = useInfiniteList(async (page) => {
+    const orders = await shop.orders.list(page, PAGE_SIZE);
+    cacheOrders(orders);
+    return orders;
+  }, 'orders');
 
-  const visible = orders.filter((order) =>
+  // a new order may have been placed since the tab was last shown
+  const firstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (firstFocus.current) {
+        firstFocus.current = false;
+        return;
+      }
+      list.refresh();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
+
+  const visible = list.items.filter((order) =>
     segment === 'all'
       ? true
       : segment === 'active'
-        ? isActiveOrder(order.status)
-        : order.status === segment,
+        ? isActiveOrder(order.statusCode)
+        : segment === 'delivered'
+          ? order.statusCode === 6
+          : CANCELLED_CODES.has(order.statusCode),
   );
-
-  const spent = orders.filter((o) => o.status !== 'cancelled').reduce((sum, o) => sum + o.total, 0);
-  const activeCount = orders.filter((o) => isActiveOrder(o.status)).length;
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
@@ -50,119 +69,96 @@ export default function OrdersScreen() {
       <FlatList
         data={visible}
         keyExtractor={(order) => order.id}
-        contentContainerStyle={styles.list}
-        ListHeaderComponent={
-          <View style={styles.headerBlock}>
-            <View style={styles.stats}>
-              <StatCard label="Active orders" value={activeCount.toString()} icon={Icons.truck} />
-              <StatCard label="Purchased (60 days)" value={formatCompactINR(spent)} icon={Icons.rupee} />
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segments}>
-              {SEGMENTS.map((s) => (
-                <Chip key={s.id} label={s.label} selected={segment === s.id} onPress={() => setSegment(s.id)} />
-              ))}
-            </ScrollView>
-          </View>
-        }
         renderItem={({ item }) => <OrderCard order={item} />}
+        contentContainerStyle={styles.list}
+        onEndReached={list.loadMore}
+        onEndReachedThreshold={0.5}
+        refreshControl={
+          <RefreshControl refreshing={list.refreshing} onRefresh={list.refresh} tintColor={theme.primary} colors={[theme.primary]} />
+        }
+        ListHeaderComponent={
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segments}>
+            {SEGMENTS.map((s) => (
+              <Chip key={s.id} label={s.label} selected={segment === s.id} onPress={() => setSegment(s.id)} />
+            ))}
+          </ScrollView>
+        }
         ListEmptyComponent={
-          <EmptyState
-            icon={Icons.orders}
-            title="No orders here"
-            message="Orders you place will show up here with live status."
-            action={{ label: 'Start shopping', onPress: () => router.navigate(HOME_HREF) }}
-          />
+          list.loading ? (
+            <CardListSkeleton count={3} />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={list.retry} />
+          ) : (
+            <EmptyState
+              icon={Icons.orders}
+              title={list.items.length > 0 ? 'Nothing in this list' : 'No orders yet'}
+              message={list.items.length > 0 ? 'Try another filter above.' : 'When you place an order, it shows up here.'}
+              action={list.items.length > 0 ? undefined : { label: 'Start shopping', onPress: () => router.navigate(HOME_HREF) }}
+            />
+          )
+        }
+        ListFooterComponent={
+          list.items.length === 0 ? null : list.error ? (
+            <ErrorState compact message={list.error} onRetry={list.retry} />
+          ) : list.loadingMore || list.hasMore ? (
+            <CardListSkeleton count={1} />
+          ) : (
+            <EndOfList label="No older orders" />
+          )
         }
       />
     </View>
   );
 }
 
-function StatCard({ label, value, icon }: { label: string; value: string; icon: IconName }) {
-  const theme = useTheme();
-  return (
-    <View style={[styles.stat, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <View style={[styles.statIcon, { backgroundColor: theme.primarySoft }]}>
-        <Icon name={icon} color={theme.primary} size={18} />
-      </View>
-      <View>
-        <AppText variant="heading">{value}</AppText>
-        <AppText variant="caption" color="textSecondary">
-          {label}
-        </AppText>
-      </View>
-    </View>
-  );
-}
-
 function OrderCard({ order }: { order: Order }) {
   const theme = useTheme();
-  const products = order.lines.flatMap((line) => getProduct(line.productId) ?? []);
-  const units = order.lines.reduce((sum, l) => sum + l.quantity, 0);
+  const units = order.items.reduce((sum, item) => sum + item.qty, 0);
 
   return (
     <Pressable
       onPress={() => router.push({ pathname: '/order/[id]', params: { id: order.id } })}
-      style={({ pressed }) => [
-        styles.card,
-        { backgroundColor: theme.surface, borderColor: theme.border },
-        pressed && { opacity: 0.9 },
-      ]}>
+      style={({ pressed }) => [styles.card, { backgroundColor: theme.surface, borderColor: theme.border }, pressed && styles.pressed]}>
       <View style={styles.cardTop}>
         <View style={styles.flex}>
-          <AppText variant="subheading">#{order.id}</AppText>
+          <AppText variant="subheading">#{order.number}</AppText>
           <AppText variant="caption" color="textMuted">
-            Placed {formatDate(order.placedAt)}
+            Placed {formatDate(order.date)}
           </AppText>
         </View>
-        <OrderStatusPill status={order.status} />
+        <OrderStatusPill statusCode={order.statusCode} label={order.status} />
       </View>
 
       <View style={styles.thumbs}>
-        {products.slice(0, 4).map((product) => (
-          <RemoteImage key={product.id} image={product.images[0]} width={52} radius={Radius.sm} />
+        {order.items.slice(0, 4).map((item, index) => (
+          <RemoteImage key={`${item.productCode}-${index}`} uri={item.image} width={52} radius={Radius.sm} />
         ))}
-        {products.length > 4 && (
+        {order.items.length > 4 && (
           <View style={[styles.more, { backgroundColor: theme.surfaceMuted }]}>
             <AppText variant="captionStrong" color="textSecondary">
-              +{products.length - 4}
+              +{order.items.length - 4}
             </AppText>
           </View>
         )}
       </View>
 
       <AppText variant="caption" color="textSecondary" numberOfLines={1}>
-        {products.map((p) => p.name).join(', ')}
+        {order.items.map((item) => item.name).join(', ')}
       </AppText>
 
       <View style={[styles.cardBottom, { borderTopColor: theme.border }]}>
         <View style={styles.flex}>
           <AppText variant="bodyStrong">{formatINR(order.total)}</AppText>
           <AppText variant="caption" color="textMuted">
-            {plural(order.lines.length, 'item')} · {plural(units, 'unit')}
-            {order.expectedBy && isActiveOrder(order.status) ? ` · by ${formatShortDate(order.expectedBy)}` : ''}
+            {plural(units, 'item')}
           </AppText>
         </View>
-        {order.status === 'delivered' || order.status === 'cancelled' ? (
-          <View style={styles.reorder}>
-            <Button
-              title="Reorder"
-              icon={Icons.refresh}
-              variant="secondary"
-              onPress={() => {
-                cartActions.addMany(order.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })));
-                router.push('/cart');
-              }}
-            />
-          </View>
-        ) : (
-          <View style={styles.track}>
-            <AppText variant="captionStrong" color="primary">
-              Track order
-            </AppText>
-            <Icon name={Icons.chevronRight} color={theme.primary} size={12} weight="bold" />
-          </View>
-        )}
+        <View style={styles.track}>
+          <AppText variant="captionStrong" color="primary">
+            {isActiveOrder(order.statusCode) ? 'Track order' : 'View details'}
+          </AppText>
+          <Icon name={Icons.chevronRight} color={theme.primary} size={12} weight="bold" />
+        </View>
       </View>
     </Pressable>
   );
@@ -172,6 +168,9 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  pressed: {
+    opacity: 0.9,
+  },
   list: {
     width: '100%',
     maxWidth: MaxFormWidth + 200,
@@ -180,32 +179,9 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
     gap: Spacing.three - 4,
   },
-  headerBlock: {
-    gap: Spacing.three - 4,
-    paddingBottom: Spacing.one,
-  },
-  stats: {
-    flexDirection: 'row',
-    gap: Spacing.three - 4,
-  },
-  stat: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three - 4,
-    padding: Spacing.three - 4,
-    borderRadius: Radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  statIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   segments: {
     gap: Spacing.two,
+    paddingBottom: Spacing.one,
   },
   card: {
     padding: Spacing.three,
@@ -235,9 +211,6 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     paddingTop: Spacing.three - 4,
     borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  reorder: {
-    width: 136,
   },
   track: {
     flexDirection: 'row',

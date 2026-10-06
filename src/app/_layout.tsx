@@ -2,9 +2,9 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { ToastHost } from '@/components/ui/toast';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { OrdersProvider } from '@/store/orders';
 import { SessionProvider, useSession } from '@/store/session';
 
 const LightNavTheme = {
@@ -38,19 +38,23 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkNavTheme : LightNavTheme}>
         <SessionProvider>
-          <OrdersProvider>
-            <StatusBar style="auto" />
-            <RootNavigator />
-          </OrdersProvider>
+          <StatusBar style="auto" />
+          <RootNavigator />
+          <ToastHost />
         </SessionProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );
 }
 
-/** Routes are gated by session status; Expo Router redirects automatically when it changes. */
+/**
+ * Sign-in first: every shopping screen sits behind the session. Expo Router
+ * redirects automatically when the status changes. While the saved session is
+ * being restored the splash screen stays up, so nothing renders here.
+ */
 function RootNavigator() {
   const { status } = useSession();
+  if (status === 'loading') return null;
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -58,19 +62,19 @@ function RootNavigator() {
         <Stack.Screen name="login" options={{ animation: 'fade' }} />
       </Stack.Protected>
 
-      <Stack.Protected guard={status === 'pending'}>
-        <Stack.Screen name="pending" options={{ animation: 'fade', gestureEnabled: false }} />
-      </Stack.Protected>
-
-      <Stack.Protected guard={status === 'approved'}>
+      <Stack.Protected guard={status === 'signed-in'}>
         <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
         <Stack.Screen name="search" options={{ animation: 'fade' }} />
         <Stack.Screen name="category/[id]" />
-        <Stack.Screen name="brand/[id]" />
+        <Stack.Screen name="brand/[name]" />
         <Stack.Screen name="brands" />
         <Stack.Screen name="product/[id]" />
         <Stack.Screen name="cart" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="wishlist" />
         <Stack.Screen name="order/[id]" />
+        <Stack.Screen name="order-placed" options={{ animation: 'fade', gestureEnabled: false }} />
+        <Stack.Screen name="addresses" />
+        <Stack.Screen name="address-form" options={{ presentation: 'modal' }} />
       </Stack.Protected>
     </Stack>
   );

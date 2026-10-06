@@ -2,7 +2,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { ProductCard } from '@/components/product/product-card';
 import { Spacing } from '@/constants/theme';
-import type { Product } from '@/data/catalog';
+import type { ProductSummary as Product } from '@/services/types';
 
 const DEFAULT_GAP = Spacing.three - 4;
 

@@ -3,12 +3,12 @@ import { FlatList, StyleSheet, View } from 'react-native';
 import { ProductCard } from '@/components/product/product-card';
 import { SectionHeader } from '@/components/ui/section-header';
 import { Spacing } from '@/constants/theme';
-import type { Product } from '@/data/catalog';
+import type { ProductSummary } from '@/services/types';
 
 type ProductRailProps = {
   title: string;
   subtitle?: string;
-  products: Product[];
+  products: ProductSummary[];
   onSeeAll?: () => void;
 };
 

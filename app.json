@@ -42,7 +42,8 @@
             "image": "./assets/images/logo.png"
           }
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

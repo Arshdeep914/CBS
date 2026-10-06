@@ -1,65 +1,69 @@
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { CART_BAR_SPACE, CartBar } from '@/components/cart-bar';
-import { CategoryTile } from '@/components/home/category-tile';
-import { RemoteImage } from '@/components/product/product-image';
+import { CategoryTile, TILE_TINTS } from '@/components/home/category-tile';
+import { TileGridSkeleton } from '@/components/product/skeletons';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
 import { Icons } from '@/components/ui/icon';
 import { HeaderButton, ScreenHeader } from '@/components/ui/screen-header';
-import { AppText } from '@/components/ui/text';
-import { Radius, Spacing } from '@/constants/theme';
-import { categories, productsByCategory } from '@/data/catalog';
+import { Spacing } from '@/constants/theme';
+import { useAsync } from '@/hooks/use-async';
 import { useTheme } from '@/hooks/use-theme';
 import { plural } from '@/lib/format';
+import { shop } from '@/services';
 import { useCartCount } from '@/store/cart';
 
 export default function CategoriesScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const itemCount = useCartCount();
-  const tileWidth = (Math.min(width, 900) - Spacing.three * 2) / 4;
+  const categories = useAsync(() => shop.catalog.categories(), []);
+  const columns = width > 600 ? 5 : 3;
+  const tileWidth = (Math.min(width, 900) - Spacing.three * 2) / columns;
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
       <ScreenHeader
         title="Categories"
+        subtitle={categories.data ? plural(categories.data.length, 'category', 'categories') : undefined}
         showBack={false}
         right={<HeaderButton icon={Icons.search} label="Search" onPress={() => router.push('/search')} />}
       />
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={categories.refreshing}
+            onRefresh={categories.refresh}
+            tintColor={theme.primary}
+            colors={[theme.primary]}
+          />
+        }
         contentContainerStyle={[styles.content, { paddingBottom: itemCount > 0 ? CART_BAR_SPACE : Spacing.four }]}>
-        {categories.map((category) => (
-          <View key={category.id} style={styles.section}>
-            <Pressable
-              onPress={() => router.push({ pathname: '/category/[id]', params: { id: category.id } })}
-              style={[styles.banner, { backgroundColor: category.tint }]}>
-              <View style={styles.flex}>
-                <AppText variant="heading" color="#1B1A19">
-                  {category.name}
-                </AppText>
-                <AppText variant="caption" color="#6B655E">
-                  {category.tagline} · {plural(productsByCategory(category.id).length, 'product')}
-                </AppText>
-              </View>
-              <RemoteImage image={category.image} width={64} radius={Radius.md} />
-            </Pressable>
-            <View style={styles.grid}>
-              {category.subcategories.map((sub) => (
-                <CategoryTile
-                  key={sub.id}
-                  label={sub.name}
-                  image={sub.image}
-                  tint={category.tint}
-                  width={tileWidth}
-                  onPress={() =>
-                    router.push({ pathname: '/category/[id]', params: { id: category.id, sub: sub.id } })
-                  }
-                />
-              ))}
-            </View>
+        {categories.loading ? (
+          <TileGridSkeleton tileWidth={tileWidth} count={12} />
+        ) : categories.error ? (
+          <ErrorState message={categories.error} onRetry={categories.reload} />
+        ) : !categories.data?.length ? (
+          <EmptyState icon={Icons.categories} title="No categories yet" message="Check back soon." />
+        ) : (
+          <View style={styles.grid}>
+            {categories.data.map((category, index) => (
+              <CategoryTile
+                key={category.code}
+                label={category.name}
+                uri={category.image}
+                tint={TILE_TINTS[index % TILE_TINTS.length]}
+                width={tileWidth}
+                onPress={() =>
+                  router.push({ pathname: '/category/[id]', params: { id: category.code, name: category.name } })
+                }
+              />
+            ))}
           </View>
-        ))}
+        )}
       </ScrollView>
       <CartBar aboveTabBar />
     </View>
@@ -71,25 +75,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingTop: Spacing.three,
-    gap: Spacing.four,
-  },
-  section: {
-    gap: Spacing.three,
-  },
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    marginHorizontal: Spacing.three,
-    padding: Spacing.three - 4,
-    paddingLeft: Spacing.three,
-    borderRadius: Radius.md,
+    paddingTop: Spacing.four,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    rowGap: Spacing.three,
+    rowGap: Spacing.four,
     paddingHorizontal: Spacing.three,
   },
 });

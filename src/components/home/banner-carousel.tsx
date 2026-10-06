@@ -6,10 +6,18 @@ import { RemoteImage } from '@/components/product/product-image';
 import { Icon, Icons } from '@/components/ui/icon';
 import { AppText } from '@/components/ui/text';
 import { Radius, Spacing } from '@/constants/theme';
-import { banners } from '@/data/catalog';
+import { imageUrl, type ImageKey } from '@/data/images';
 import { useTheme } from '@/hooks/use-theme';
 
 const HEIGHT = 168;
+
+/** Static promotional banners. Swap for CMS-driven banners once the backend has them. */
+const BANNERS: { id: string; eyebrow: string; title: string; cta: string; image: ImageKey; color: string }[] = [
+  { id: 'festive', eyebrow: 'FESTIVE OFFERS', title: 'Up to 40% off\nfor your kitchen', cta: 'Shop now', image: 'hangingPots', color: '#8E1014' },
+  { id: 'new', eyebrow: 'JUST LANDED', title: 'New arrivals\nevery week', cta: 'Explore', image: 'cookSet3', color: '#1E2A36' },
+  { id: 'dining', eyebrow: 'MAKE IT SPECIAL', title: 'Dinnerware for\nevery table', cta: 'Browse', image: 'plates2', color: '#6B4A2B' },
+];
+
 const GAP = Spacing.three - 4;
 
 export function BannerCarousel() {
@@ -23,7 +31,7 @@ export function BannerCarousel() {
   useEffect(() => {
     const timer = setInterval(() => {
       setActive((current) => {
-        const next = (current + 1) % banners.length;
+        const next = (current + 1) % BANNERS.length;
         scrollRef.current?.scrollTo({ x: next * (width + GAP), animated: true });
         return next;
       });
@@ -43,14 +51,14 @@ export function BannerCarousel() {
         onMomentumScrollEnd={(event) =>
           setActive(Math.round(event.nativeEvent.contentOffset.x / (width + GAP)))
         }>
-        {banners.map((banner) => (
+        {BANNERS.map((banner) => (
           <Pressable
             key={banner.id}
             accessibilityRole="button"
             accessibilityLabel={banner.title.replace('\n', ' ')}
-            onPress={() => router.push(banner.href)}
+            onPress={() => router.navigate('/categories')}
             style={[styles.banner, { width, backgroundColor: banner.color }]}>
-            <RemoteImage image={banner.image} width={width * 0.5} height={HEIGHT} style={styles.image} />
+            <RemoteImage uri={imageUrl(banner.image, 600, 400)} width={width * 0.5} height={HEIGHT} style={styles.image} />
             <View style={[styles.fade, { backgroundColor: banner.color }]} />
             <View style={styles.copy}>
               <AppText variant="overline" color="rgba(255,255,255,0.8)">
@@ -70,7 +78,7 @@ export function BannerCarousel() {
         ))}
       </ScrollView>
       <View style={styles.dots}>
-        {banners.map((banner, index) => (
+        {BANNERS.map((banner, index) => (
           <View
             key={banner.id}
             style={[

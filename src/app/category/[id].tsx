@@ -1,63 +1,68 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { CART_BAR_SPACE, CartBar } from '@/components/cart-bar';
 import { FilterBar } from '@/components/filters/filter-bar';
-import { ProductGridRow, toRows, useGridLayout } from '@/components/product/product-grid';
+import { TILE_TINTS } from '@/components/home/category-tile';
+import { PagedProductGrid } from '@/components/product/paged-grid';
 import { RemoteImage } from '@/components/product/product-image';
-import { EndOfList, ProductGridSkeleton } from '@/components/product/skeletons';
-import { EmptyState } from '@/components/ui/empty-state';
+import { Block } from '@/components/product/skeletons';
 import { Icons } from '@/components/ui/icon';
 import { HeaderButton, ScreenHeader } from '@/components/ui/screen-header';
 import { AppText } from '@/components/ui/text';
 import { Spacing } from '@/constants/theme';
-import { getCategory, productsByCategory } from '@/data/catalog';
-import { usePagedList } from '@/hooks/use-paged-list';
+import { useAsync } from '@/hooks/use-async';
+import { useInfiniteList } from '@/hooks/use-infinite-list';
 import { useTheme } from '@/hooks/use-theme';
-import { applyFilters, brandsIn, EMPTY_FILTERS, type Filters } from '@/lib/filters';
-import { plural } from '@/lib/format';
+import { applyLocalFilters, EMPTY_FILTERS, serverFilterKey, serverFilters, type Filters } from '@/lib/filters';
+import { shop } from '@/services';
 import { useCartCount } from '@/store/cart';
 
 const RAIL_WIDTH = 84;
 
-/** Blinkit-style category page: subcategory rail on the left, products on the right. */
+/**
+ * Blinkit-style category page: every category in a rail on the left, the
+ * selected one's products on the right, loaded page by page.
+ */
 export default function CategoryScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const { id, sub } = useLocalSearchParams<{ id: string; sub?: string }>();
-  const category = getCategory(id);
+  const params = useLocalSearchParams<{ id: string; name?: string }>();
   const itemCount = useCartCount();
 
-  const [activeSub, setActiveSub] = useState<string>(sub ?? 'all');
+  const categories = useAsync(() => shop.catalog.categories(), []);
+  const filterOptions = useAsync(() => shop.catalog.filters(), []);
+
+  const [activeCode, setActiveCode] = useState(params.id);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
 
-  const inCategory = category ? productsByCategory(category.id) : [];
-  const inSub = activeSub === 'all' ? inCategory : inCategory.filter((p) => p.subcategoryId === activeSub);
-  const filtered = applyFilters([...inSub], filters);
-  const grid = useGridLayout(Math.min(width, 900) - RAIL_WIDTH, Spacing.two + 2, Spacing.two + 2);
-  const page = usePagedList(filtered, `${activeSub}|${JSON.stringify(filters)}`, grid.columns * 5);
+  const active = categories.data?.find((c) => c.code === activeCode);
+  // the listing endpoint is queried by category *name*
+  const activeName = active?.name ?? (activeCode === params.id ? params.name : undefined) ?? '';
 
-  if (!category) {
-    return (
-      <View style={[styles.flex, { backgroundColor: theme.background }]}>
-        <ScreenHeader title="Category" />
-        <EmptyState icon={Icons.categories} title="Category not found" message="It may have been moved." />
-      </View>
-    );
+  const list = useInfiniteList(
+    (page, signal) =>
+      activeName
+        ? shop.catalog.categoryProducts(activeName, page, serverFilters(filters), signal)
+        : Promise.resolve([]),
+    `${activeName}|${serverFilterKey(filters)}`,
+  );
+  const visible = applyLocalFilters([...list.items], filters);
+  const gridWidth = Math.min(width, 900) - RAIL_WIDTH;
+
+  function select(code: string) {
+    if (code === activeCode) return;
+    setActiveCode(code);
+    // filters like "brand" rarely carry over between categories
+    setFilters(EMPTY_FILTERS);
   }
-
-
-  const railItems = [
-    { id: 'all', name: `All ${category.name}`, image: category.image },
-    ...category.subcategories,
-  ];
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
       <ScreenHeader
-        title={category.name}
-        subtitle={plural(inCategory.length, 'product')}
+        title={activeName || 'Category'}
+        subtitle={list.loading ? 'Loading…' : `${list.items.length}${list.hasMore ? '+' : ''} products`}
         right={<HeaderButton icon={Icons.search} label="Search" onPress={() => router.push('/search')} />}
       />
       <View style={styles.body}>
@@ -65,66 +70,56 @@ export default function CategoryScreen() {
           style={[styles.rail, { backgroundColor: theme.surface, borderRightColor: theme.border }]}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: CART_BAR_SPACE }}>
-          {railItems.map((item) => {
-            const active = item.id === activeSub;
-            return (
-              <Pressable
-                key={item.id}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                onPress={() => setActiveSub(item.id)}
-                style={[styles.railItem, active && { backgroundColor: theme.primarySoft }]}>
-                {active && <View style={[styles.railIndicator, { backgroundColor: theme.primary }]} />}
-                <View style={[styles.railImage, { backgroundColor: category.tint }]}>
-                  <RemoteImage image={item.image} width={44} radius={22} />
+          {categories.loading
+            ? Array.from({ length: 7 }, (_, i) => (
+                <View key={i} style={styles.railItem}>
+                  <Block width={52} height={52} radius={26} />
+                  <Block width={56} height={9} />
                 </View>
-                <AppText
-                  variant="micro"
-                  color={active ? 'primary' : 'textSecondary'}
-                  numberOfLines={2}
-                  style={styles.railLabel}>
-                  {item.name}
-                </AppText>
-              </Pressable>
-            );
-          })}
+              ))
+            : (categories.data ?? []).map((item, index) => {
+                const selected = item.code === activeCode;
+                return (
+                  <Pressable
+                    key={item.code}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}
+                    onPress={() => select(item.code)}
+                    style={[styles.railItem, selected && { backgroundColor: theme.primarySoft }]}>
+                    {selected && <View style={[styles.railIndicator, { backgroundColor: theme.primary }]} />}
+                    <View style={[styles.railImage, { backgroundColor: TILE_TINTS[index % TILE_TINTS.length] }]}>
+                      <RemoteImage uri={item.image} width={44} radius={22} />
+                    </View>
+                    <AppText
+                      variant="micro"
+                      color={selected ? 'primary' : 'textSecondary'}
+                      numberOfLines={2}
+                      style={styles.railLabel}>
+                      {item.name}
+                    </AppText>
+                  </Pressable>
+                );
+              })}
         </ScrollView>
 
-        <FlatList
-          style={styles.flex}
-          data={toRows(page.visible, grid.columns)}
-          keyExtractor={(row) => row[0].id}
-          renderItem={({ item }) => (
-            <ProductGridRow products={item} cardWidth={grid.cardWidth} padding={grid.padding} gap={grid.gap} />
-          )}
-          stickyHeaderIndices={[0]}
-          ListHeaderComponent={
-            <View style={[styles.filters, { backgroundColor: theme.background }]}>
-              <FilterBar filters={filters} onChange={setFilters} brands={brandsIn(inSub)} sticky />
-            </View>
-          }
-          ListEmptyComponent={
-            <EmptyState
-              icon={Icons.filter}
-              title="Nothing here yet"
-              message="No products match these filters."
-              action={{ label: 'Clear filters', onPress: () => setFilters(EMPTY_FILTERS) }}
-            />
-          }
-          ListFooterComponent={
-            page.hasMore ? (
-              <ProductGridSkeleton {...grid} />
-            ) : filtered.length > 0 ? (
-              <EndOfList total={filtered.length} />
-            ) : null
-          }
-          onEndReached={page.loadMore}
-          onEndReachedThreshold={0.6}
-          initialNumToRender={4}
-          windowSize={7}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: itemCount > 0 ? CART_BAR_SPACE + Spacing.four : Spacing.five }}
-        />
+        <View style={styles.flex}>
+          <PagedProductGrid
+            list={list}
+            products={visible}
+            loadedCount={list.items.length}
+            width={gridWidth}
+            padding={Spacing.two + 2}
+            gap={Spacing.two + 2}
+            stickyHeader={
+              <View style={{ backgroundColor: theme.background }}>
+                <FilterBar filters={filters} onChange={setFilters} groups={filterOptions.data?.groups ?? []} sticky />
+              </View>
+            }
+            onClearFilters={() => setFilters(EMPTY_FILTERS)}
+            emptyTitle="Nothing in this category yet"
+            bottomPadding={itemCount > 0 ? CART_BAR_SPACE + Spacing.four : Spacing.five}
+          />
+        </View>
       </View>
       <CartBar />
     </View>
@@ -138,9 +133,6 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     flexDirection: 'row',
-  },
-  filters: {
-    paddingBottom: Spacing.one,
   },
   rail: {
     width: RAIL_WIDTH,

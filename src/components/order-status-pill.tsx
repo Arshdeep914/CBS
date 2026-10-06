@@ -1,28 +1,15 @@
 import { StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/text';
-import type { OrderStatus } from '@/data/orders';
 import { useTheme } from '@/hooks/use-theme';
+import { CANCELLED_CODES, RETURNED_CODE } from '@/store/orders';
 
-export const STATUS_LABELS: Record<OrderStatus, string> = {
-  placed: 'Placed',
-  confirmed: 'Confirmed',
-  packed: 'Packed',
-  shipped: 'Out for delivery',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled',
-};
-
-export function isActiveOrder(status: OrderStatus) {
-  return status !== 'delivered' && status !== 'cancelled';
-}
-
-export function OrderStatusPill({ status }: { status: OrderStatus }) {
+export function OrderStatusPill({ statusCode, label }: { statusCode: number; label: string }) {
   const theme = useTheme();
   const tone =
-    status === 'delivered'
+    statusCode === 6
       ? { bg: theme.successSoft, fg: theme.success }
-      : status === 'cancelled'
+      : CANCELLED_CODES.has(statusCode) || statusCode === RETURNED_CODE
         ? { bg: theme.surfaceMuted, fg: theme.textSecondary }
         : { bg: theme.warningSoft, fg: theme.warning };
 
@@ -30,7 +17,7 @@ export function OrderStatusPill({ status }: { status: OrderStatus }) {
     <View style={[styles.pill, { backgroundColor: tone.bg }]}>
       <View style={[styles.dot, { backgroundColor: tone.fg }]} />
       <AppText variant="captionStrong" color={tone.fg}>
-        {STATUS_LABELS[status]}
+        {label}
       </AppText>
     </View>
   );

@@ -9,7 +9,7 @@ import { AppText } from '@/components/ui/text';
 import { MaxFormWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatINR, plural } from '@/lib/format';
-import { useCartSummary } from '@/store/cart';
+import { cartTotals, useCartState } from '@/store/cart';
 
 /** Height reserved at the bottom of scroll views so content isn't hidden behind the bar. */
 export const CART_BAR_SPACE = 88;
@@ -23,9 +23,10 @@ type CartBarProps = {
 export function CartBar({ aboveTabBar = false }: CartBarProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { lines, itemCount, bill } = useCartSummary();
+  const { lines } = useCartState();
 
-  if (itemCount === 0) return null;
+  if (lines.length === 0) return null;
+  const totals = cartTotals(lines);
 
   return (
     <Animated.View
@@ -36,16 +37,11 @@ export function CartBar({ aboveTabBar = false }: CartBarProps) {
         accessibilityRole="button"
         accessibilityLabel="View cart"
         onPress={() => router.push('/cart')}
-        style={({ pressed }) => [
-          styles.bar,
-          { backgroundColor: pressed ? theme.primaryPressed : theme.primary },
-        ]}>
+        style={({ pressed }) => [styles.bar, { backgroundColor: pressed ? theme.primaryPressed : theme.primary }]}>
         <View style={styles.thumbs}>
           {lines.slice(0, 3).map((line, index) => (
-            <View
-              key={line.product.id}
-              style={[styles.thumb, { marginLeft: index === 0 ? 0 : -14, borderColor: theme.primary }]}>
-              <RemoteImage image={line.product.images[0]} width={34} radius={17} />
+            <View key={line.id} style={[styles.thumb, { marginLeft: index === 0 ? 0 : -14, borderColor: theme.primary }]}>
+              <RemoteImage uri={line.image} width={34} radius={17} />
             </View>
           ))}
         </View>
@@ -54,7 +50,7 @@ export function CartBar({ aboveTabBar = false }: CartBarProps) {
             View cart
           </AppText>
           <AppText variant="caption" color="rgba(255,255,255,0.85)">
-            {plural(itemCount, 'item')} · {formatINR(bill.itemsTotal)}
+            {plural(totals.itemCount, 'item')} · {formatINR(totals.subtotal)}
           </AppText>
         </View>
         <Icon name={Icons.chevronRight} color={theme.onPrimary} size={16} weight="bold" />

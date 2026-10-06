@@ -19,7 +19,7 @@ export default function CategoriesScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const itemCount = useCartCount();
-  const categories = useAsync(() => shop.catalog.categories(), []);
+  const categories = useAsync((_, options) => shop.catalog.categories(options), []);
   const columns = width > 600 ? 5 : 3;
   const tileWidth = (Math.min(width, 900) - Spacing.three * 2) / columns;
 

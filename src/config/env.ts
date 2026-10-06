@@ -34,6 +34,8 @@ export const Env = {
   offline: !apiUrl,
   razorpayKeyId: clean(process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID),
   platformFee: Number(clean(process.env.EXPO_PUBLIC_PLATFORM_FEE)) || 0,
+  /** Print every API request and response in the terminal (see src/api/logger.ts). */
+  logs: flag(process.env.EXPO_PUBLIC_LOGS, false),
 } as const;
 
 if (Env.offline) {

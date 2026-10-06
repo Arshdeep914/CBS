@@ -181,19 +181,22 @@ const toApiFilters = (filters: FilterSelection[]) =>
 /*  shared, cached lookups                                             */
 /* ------------------------------------------------------------------ */
 
-// Several screens want these on first paint; share one request each and allow
-// a retry after failure.
+// Several screens want these on first paint, so each is fetched once and shared.
+// A failed request is forgotten (so the next call retries), and `{ fresh: true }`
+// (pull-to-refresh) replaces it with a new request.
 let categoriesRequest: Promise<Category[]> | null = null;
 let filtersRequest: Promise<ApiFilters | null> | null = null;
 
-function loadFilters() {
-  if (!filtersRequest) {
-    filtersRequest = get<ApiFilters>(ENDPOINTS.CUSTOMER.FILTERS)
+function loadFilters(fresh = false) {
+  if (fresh || !filtersRequest) {
+    const request: Promise<ApiFilters | null> = get<ApiFilters>(ENDPOINTS.CUSTOMER.FILTERS)
       .then((data) => (Array.isArray(data?.headers) ? data : null))
       .catch((err) => {
-        filtersRequest = null;
+        // only forget it if a newer request hasn't replaced it meanwhile
+        if (filtersRequest === request) filtersRequest = null;
         throw err;
       });
+    filtersRequest = request;
   }
   return filtersRequest;
 }
@@ -213,15 +216,10 @@ const dedupeBy = <T>(items: T[], key: (item: T) => string) => {
 /* ------------------------------------------------------------------ */
 
 export const liveCatalog: ShopService['catalog'] = {
-  categories() {
-    if (!categoriesRequest) {
-      categoriesRequest = get<ApiCategory[]>(ENDPOINTS.CUSTOMER.CATEGORY)
-       .then((data) => {
-          console.log('[categories] API response:', JSON.stringify(data, null, 2));
-          return data;
-        })
+  categories(options) {
+    if (options?.fresh || !categoriesRequest) {
+      const request: Promise<Category[]> = get<ApiCategory[]>(ENDPOINTS.CUSTOMER.CATEGORY)
         .then((data) =>
-          
           dedupeBy(
             (Array.isArray(data) ? data : [])
               .filter((c) => c?.code && c.name?.trim())
@@ -230,23 +228,24 @@ export const liveCatalog: ShopService['catalog'] = {
           ),
         )
         .catch((err) => {
-          categoriesRequest = null;
+          if (categoriesRequest === request) categoriesRequest = null;
           throw err;
         });
+      categoriesRequest = request;
     }
     return categoriesRequest;
   },
 
   /** There's no brand-list endpoint; the filters response carries them under "Brand". */
-  async brands() {
-    const filters = await loadFilters();
+  async brands(options) {
+    const filters = await loadFilters(options?.fresh);
     const header = filters?.headers.find((h) => h.name?.toLowerCase() === 'brand');
     const names = (header?.childs ?? []).map((c) => (c.childName ?? '').trim()).filter(Boolean);
     return dedupeBy(names, (n) => n).map((name): Brand => ({ name }));
   },
 
-  async filters(): Promise<CatalogFilters> {
-    const data = await loadFilters();
+  async filters(options): Promise<CatalogFilters> {
+    const data = await loadFilters(options?.fresh);
     if (!data) return { price: null, groups: [] };
     const { minPrice, maxPrice } = data.priceDetails ?? {};
     return {

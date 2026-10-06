@@ -17,11 +17,14 @@ function sameDeps(a: readonly unknown[], b: readonly unknown[]) {
   return a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
 }
 
+/** Passed to the loader; `fresh` is true for pull-to-refresh and "Try again", so caches are skipped. */
+export type LoadOptions = { fresh: boolean };
+
 /**
  * Loads data for a screen, with first-load / refresh / error states and
  * cancellation when the inputs change or the screen closes.
  */
-export function useAsync<T>(load: (signal: AbortSignal) => Promise<T>, deps: readonly unknown[]) {
+export function useAsync<T>(load: (signal: AbortSignal, options: LoadOptions) => Promise<T>, deps: readonly unknown[]) {
   const [state, setState] = useState<AsyncState<T>>(INITIAL);
 
   // New inputs mean a fresh first load: reset during render rather than in an effect.
@@ -37,12 +40,12 @@ export function useAsync<T>(load: (signal: AbortSignal) => Promise<T>, deps: rea
     loadRef.current = load;
   });
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (fresh: boolean) => {
     controller.current?.abort();
     const current = new AbortController();
     controller.current = current;
     try {
-      const data = await loadRef.current(current.signal);
+      const data = await loadRef.current(current.signal, { fresh });
       if (current.signal.aborted) return;
       setState({ data, loading: false, refreshing: false, error: null });
     } catch (err) {
@@ -52,7 +55,7 @@ export function useAsync<T>(load: (signal: AbortSignal) => Promise<T>, deps: rea
   }, []);
 
   useEffect(() => {
-    void run();
+    void run(false);
     return () => controller.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
@@ -62,12 +65,12 @@ export function useAsync<T>(load: (signal: AbortSignal) => Promise<T>, deps: rea
     /** Start over, showing the loading state (e.g. "Try again" after an error). */
     reload: () => {
       setState((s) => ({ ...s, loading: true, error: null }));
-      void run();
+      void run(true);
     },
     /** Reload in the background, keeping current data on screen (pull-to-refresh). */
     refresh: () => {
       setState((s) => ({ ...s, refreshing: true }));
-      void run();
+      void run(true);
     },
   };
 }

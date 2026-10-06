@@ -16,7 +16,7 @@ import { shop } from '@/services';
 export default function BrandsScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const brands = useAsync(() => shop.catalog.brands(), []);
+  const brands = useAsync((_, options) => shop.catalog.brands(options), []);
   const available = Math.min(width, 900) - Spacing.three * 2;
   const columns = available > 600 ? 4 : 2;
   const gap = Spacing.three - 4;

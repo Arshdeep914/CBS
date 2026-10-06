@@ -1,7 +1,8 @@
-import axios, { AxiosError, isAxiosError, isCancel as isAxiosCancel, type AxiosRequestConfig } from 'axios';
+import { AxiosError, create, isAxiosError, isCancel as isAxiosCancel, type AxiosRequestConfig } from 'axios';
 import { Platform } from 'react-native';
 
 import { ENDPOINTS } from '@/api/endpoints';
+import { attachApiLogger } from '@/api/logger';
 import { MESSAGE_CODE, type ApiEnvelope } from '@/api/types';
 import { Env } from '@/config/env';
 import { getSession } from '@/lib/session-storage';
@@ -62,13 +63,21 @@ export function onSessionExpired(listener: () => void) {
 /*  instance                                                           */
 /* ------------------------------------------------------------------ */
 
-export const api = axios.create({
+export const api = create({
   baseURL: `${Env.apiUrl}/`,
   timeout: 20_000,
   // lets the native cookie jar carry any cookies the backend sets
   withCredentials: true,
   headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
 });
+
+// The CSRF handshake goes through its own instance so it skips the interceptors below.
+const csrfClient = create({ timeout: 10_000, withCredentials: true });
+
+// EXPO_PUBLIC_LOGS=true: print every request and response. Attached first so it
+// sees the final headers (request interceptors run last-added-first).
+attachApiLogger(api);
+attachApiLogger(csrfClient);
 
 /**
  * The backend authorises every request by its `Origin` header and answers 401
@@ -101,11 +110,9 @@ let csrfRequest: Promise<string> | null = null;
 
 function getCsrfToken() {
   if (!csrfRequest) {
-    csrfRequest = axios
+    csrfRequest = csrfClient
       .get<{ ott?: string }>(`${Env.apiUrl}/${ENDPOINTS.CUSTOMER.VERIFY_CSRF}`, {
-        withCredentials: true,
         headers: Env.apiOrigin && Platform.OS !== 'web' ? { Origin: Env.apiOrigin } : undefined,
-        timeout: 10_000,
       })
       .then((res) => res.data?.ott ?? '')
       .finally(() => {

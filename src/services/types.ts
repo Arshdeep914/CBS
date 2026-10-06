@@ -165,11 +165,14 @@ export type SignInResult = {
   user: UserProfile;
 };
 
+/** For the catalogue lists that are cached app-wide: `fresh` skips the cache (pull-to-refresh, retry). */
+export type CacheOptions = { fresh?: boolean };
+
 export type ShopService = {
   catalog: {
-    categories(): Promise<Category[]>;
-    brands(): Promise<Brand[]>;
-    filters(): Promise<CatalogFilters>;
+    categories(options?: CacheOptions): Promise<Category[]>;
+    brands(options?: CacheOptions): Promise<Brand[]>;
+    filters(options?: CacheOptions): Promise<CatalogFilters>;
     home(signal?: AbortSignal): Promise<HomeSection[]>;
     categoryProducts(category: string, page: number, filters: FilterSelection[], signal?: AbortSignal): Promise<ProductSummary[]>;
     sectionProducts(sectionCode: string, page: number, signal?: AbortSignal): Promise<ProductSummary[]>;

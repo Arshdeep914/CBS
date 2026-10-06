@@ -46,14 +46,15 @@ export default function HomeScreen() {
   const contentWidth = Math.min(windowWidth, 900);
   const itemCount = useCartCount();
 
-  const categories = useAsync(() => shop.catalog.categories(), []);
-  const brands = useAsync(() => shop.catalog.brands(), []);
+  const categories = useAsync((_, options) => shop.catalog.categories(options), []);
+  const brands = useAsync((_, options) => shop.catalog.brands(options), []);
   const sections = useAsync((signal) => shop.catalog.home(signal), []);
 
+  /** Pull-to-refresh: re-fetches everything on the page from the API. */
   function refreshAll() {
     sections.refresh();
-    if (categories.error) categories.reload();
-    if (brands.error) brands.reload();
+    categories.refresh();
+    brands.refresh();
   }
 
   function renderItem({ item }: { item: HomeItem }): ReactElement | null {
@@ -131,7 +132,7 @@ export default function HomeScreen() {
         stickyHeaderIndices={STICKY_INDEXES}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={sections.refreshing} onRefresh={refreshAll} tintColor={theme.primary} colors={[theme.primary]} />
+          <RefreshControl refreshing={sections.refreshing || categories.refreshing || brands.refreshing} onRefresh={refreshAll} tintColor={theme.primary} colors={[theme.primary]} />
         }
         contentContainerStyle={{ paddingBottom: itemCount > 0 ? CART_BAR_SPACE : Spacing.four }}
       />

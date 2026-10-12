@@ -96,6 +96,30 @@ export function activeFilterCount(filters: Filters) {
   );
 }
 
+/** Filters as a compact string for a route param (e.g. Home's filter sheet → category page). */
+export function encodeFilters(filters: Filters) {
+  return JSON.stringify(filters);
+}
+
+/** Reads `encodeFilters` output back; anything malformed gives no filters. */
+export function decodeFilters(param: string | undefined): Filters {
+  if (!param) return EMPTY_FILTERS;
+  try {
+    const raw = JSON.parse(param) as Partial<Filters>;
+    const sort = SORT_OPTIONS.some((o) => o.id === raw.sort) ? (raw.sort as SortKey) : 'relevance';
+    const quick = Array.isArray(raw.quick)
+      ? raw.quick.filter((q): q is QuickFilter => QUICK_FILTERS.some((f) => f.id === q))
+      : [];
+    const selections = Array.isArray(raw.selections)
+      ? raw.selections.filter((s) => typeof s?.code === 'string' && typeof s?.value === 'string')
+      : [];
+    const price = PRICE_RANGES.find((r) => r.label === raw.price?.label) ?? null;
+    return { sort, quick, selections, price };
+  } catch {
+    return EMPTY_FILTERS;
+  }
+}
+
 export function isSelected(filters: Filters, code: string, value: string) {
   return filters.selections.some((s) => s.code === code && s.value === value);
 }

@@ -18,7 +18,7 @@ import {
   toggleSelection,
   type Filters,
 } from '@/lib/filters';
-import type { FilterGroup } from '@/services/types';
+import type { Category, FilterGroup } from '@/services/types';
 
 type FilterSheetProps = {
   visible: boolean;
@@ -27,21 +27,34 @@ type FilterSheetProps = {
   groups: FilterGroup[];
   showPrice: boolean;
   onClose: () => void;
-  onApply: (filters: Filters) => void;
+  /** `categoryCode` is set when the sheet shows the category picker. */
+  onApply: (filters: Filters, categoryCode?: string) => void;
+  /**
+   * Shows a required "Category" section at the top — for filtering from
+   * somewhere that isn't already a category (Home). Apply is disabled until one
+   * is picked.
+   */
+  categories?: Category[];
+  /** Sheet title (default "Filters"). */
+  title?: string;
+  /** Apply button label (default "Apply"). */
+  applyLabel?: string;
 };
 
 export function FilterSheet(props: FilterSheetProps) {
   // Remount the body each time the sheet opens so the draft starts from the applied filters.
   return (
-    <BottomSheet visible={props.visible} title={props.mode === 'sort' ? 'Sort by' : 'Filters'} onClose={props.onClose}>
+    <BottomSheet visible={props.visible} title={props.mode === 'sort' ? 'Sort by' : (props.title ?? 'Filters')} onClose={props.onClose}>
       {props.visible && <FilterSheetBody {...props} />}
     </BottomSheet>
   );
 }
 
-function FilterSheetBody({ mode, filters, groups, showPrice, onApply }: FilterSheetProps) {
+function FilterSheetBody({ mode, filters, groups, showPrice, onApply, categories, applyLabel = 'Apply' }: FilterSheetProps) {
   const theme = useTheme();
   const [draft, setDraft] = useState<Filters>(filters);
+  const [categoryCode, setCategoryCode] = useState<string | null>(null);
+  const needsCategory = !!categories;
 
   if (mode === 'sort') {
     return (
@@ -72,6 +85,24 @@ function FilterSheetBody({ mode, filters, groups, showPrice, onApply }: FilterSh
   return (
     <>
       <ScrollView contentContainerStyle={styles.content}>
+        {categories && (
+          <>
+            <AppText variant="overline" color="textMuted">
+              CATEGORY
+            </AppText>
+            <View style={styles.wrap}>
+              {categories.map((category) => (
+                <Chip
+                  key={category.code}
+                  label={category.name}
+                  selected={categoryCode === category.code}
+                  onPress={() => setCategoryCode((c) => (c === category.code ? null : category.code))}
+                />
+              ))}
+            </View>
+          </>
+        )}
+
         <AppText variant="overline" color="textMuted">
           SORT BY
         </AppText>
@@ -184,10 +215,21 @@ function FilterSheetBody({ mode, filters, groups, showPrice, onApply }: FilterSh
       </ScrollView>
       <View style={[styles.footer, { borderTopColor: theme.border }]}>
         <View style={styles.flex}>
-          <Button title="Clear all" variant="secondary" onPress={() => setDraft(EMPTY_FILTERS)} />
+          <Button
+            title="Clear all"
+            variant="secondary"
+            onPress={() => {
+              setDraft(EMPTY_FILTERS);
+              setCategoryCode(null);
+            }}
+          />
         </View>
         <View style={styles.flex}>
-          <Button title="Apply" onPress={() => onApply(draft)} />
+          <Button
+            title={needsCategory && !categoryCode ? 'Pick a category' : applyLabel}
+            disabled={needsCategory && !categoryCode}
+            onPress={() => onApply(draft, categoryCode ?? undefined)}
+          />
         </View>
       </View>
     </>

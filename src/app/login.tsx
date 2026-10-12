@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -275,6 +276,20 @@ export default function LoginScreen() {
                 />
                 <ErrorLine error={error} />
                 <Button title="Create account" onPress={handleRegister} loading={submitting} />
+                <AppText variant="caption" color="textMuted" style={styles.center}>
+                  By creating an account you agree to our{' '}
+                  <AppText variant="captionStrong" color="primary" onPress={() => router.push('/legal')}>
+                    Terms
+                  </AppText>{' '}
+                  and{' '}
+                  <AppText
+                    variant="captionStrong"
+                    color="primary"
+                    onPress={() => router.push({ pathname: '/legal', params: { tab: 'privacy' } })}>
+                    Privacy policy
+                  </AppText>
+                  .
+                </AppText>
               </>
             )}
 

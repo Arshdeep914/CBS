@@ -39,7 +39,8 @@ function loadAccountData({ freshSignIn }: { freshSignIn: boolean }) {
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 /**
- * Restores the saved session at launch (the splash screen stays up meanwhile),
+ * Restores the saved session at launch (the splash screen stays up meanwhile —
+ * see RootNavigator in app/_layout.tsx),
  * and owns sign-in / sign-out. The cart and wishlist follow the session: they
  * load on sign-in and are wiped on sign-out.
  */
@@ -54,7 +55,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
       setStatus(session ? 'signed-in' : 'signed-out');
       if (session) loadAccountData({ freshSignIn: false });
-      SplashScreen.hideAsync().catch(() => {});
+      // the root layout hides the splash once the app configuration is ready too
     });
     return () => {
       cancelled = true;

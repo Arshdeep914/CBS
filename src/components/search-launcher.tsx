@@ -13,10 +13,18 @@ const FALLBACK_HINTS = ['products', 'brands', 'categories'];
 type SearchLauncherProps = {
   /** Words to rotate through, e.g. the store's category names. */
   hints?: string[];
+  /** Shows a filter button on the right; without it the bar is search only. */
+  onFilterPress?: () => void;
+  /** Number of filters in effect, shown as a dot on the filter button. */
+  filterCount?: number;
 };
 
-/** Tappable search field with a rotating placeholder, like Zomato's home search. */
-export function SearchLauncher({ hints }: SearchLauncherProps) {
+/**
+ * Search field with a rotating placeholder, like Zomato's home search. Two tap
+ * targets side by side: the field opens Search, the filter icon calls
+ * `onFilterPress`.
+ */
+export function SearchLauncher({ hints, onFilterPress, filterCount = 0 }: SearchLauncherProps) {
   const theme = useTheme();
   const words = hints && hints.length > 0 ? hints : FALLBACK_HINTS;
   const [index, setIndex] = useState(0);
@@ -39,23 +47,37 @@ export function SearchLauncher({ hints }: SearchLauncherProps) {
   }));
 
   return (
-    <Pressable
-      accessibilityRole="search"
-      accessibilityLabel="Search products"
-      onPress={() => router.push('/search')}
-      style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <Icon name={Icons.search} color={theme.primary} size={20} weight="semibold" />
-      <View style={styles.placeholder}>
-        <AppText color="textMuted">Search </AppText>
-        <Animated.View style={[styles.word, wordStyle]}>
-          <AppText color="textMuted" numberOfLines={1}>
-            “{words[index % words.length].toLowerCase()}”
-          </AppText>
-        </Animated.View>
-      </View>
-      <View style={[styles.divider, { backgroundColor: theme.border }]} />
-      <Icon name={Icons.filter} color={theme.textSecondary} size={18} />
-    </Pressable>
+    <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <Pressable
+        accessibilityRole="search"
+        accessibilityLabel="Search products"
+        onPress={() => router.push('/search')}
+        style={styles.searchArea}>
+        <Icon name={Icons.search} color={theme.primary} size={20} weight="semibold" />
+        <View style={styles.placeholder}>
+          <AppText color="textMuted">Search </AppText>
+          <Animated.View style={[styles.word, wordStyle]}>
+            <AppText color="textMuted" numberOfLines={1}>
+              “{words[index % words.length].toLowerCase()}”
+            </AppText>
+          </Animated.View>
+        </View>
+      </Pressable>
+      {onFilterPress && (
+        <>
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={filterCount > 0 ? `Filter products, ${filterCount} applied` : 'Filter products'}
+            hitSlop={{ top: 12, bottom: 12, left: 6, right: 12 }}
+            onPress={onFilterPress}
+            style={({ pressed }) => [styles.filterButton, pressed && { opacity: 0.5 }]}>
+            <Icon name={Icons.filter} color={filterCount > 0 ? theme.primary : theme.textSecondary} size={18} />
+            {filterCount > 0 && <View style={[styles.filterDot, { backgroundColor: theme.primary }]} />}
+          </Pressable>
+        </>
+      )}
+    </View>
   );
 }
 
@@ -65,10 +87,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three - 4,
-    paddingHorizontal: Spacing.three,
+    paddingLeft: Spacing.three,
+    paddingRight: Spacing.two,
     borderRadius: Radius.md,
     borderWidth: 1,
     boxShadow: '0 2px 10px rgba(0, 0, 0, 0.06)',
+  },
+  searchArea: {
+    flex: 1,
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three - 4,
+  },
+  filterButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
   placeholder: {
     flex: 1,

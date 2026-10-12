@@ -14,10 +14,6 @@ import { useTheme } from '@/hooks/use-theme';
 import { isDemo } from '@/services';
 import { useSession } from '@/store/session';
 
-function comingSoon(feature: string) {
-  Alert.alert(feature, 'This will be available in an upcoming update.');
-}
-
 export default function AccountScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -69,7 +65,7 @@ export default function AccountScreen() {
           <Tile icon={Icons.orders} label="Orders" onPress={() => router.navigate('/orders')} />
           <Tile icon={Icons.location} label="Addresses" onPress={() => router.push('/addresses')} />
           <Tile icon={Icons.heart} label="Wishlist" onPress={() => router.push('/wishlist')} />
-          <Tile icon={Icons.support} label="Help" onPress={() => comingSoon('Help & support')} />
+          <Tile icon={Icons.support} label="Help" onPress={() => router.push('/help')} />
         </View>
 
         <MenuSection title="ACCOUNT">
@@ -80,10 +76,10 @@ export default function AccountScreen() {
         </MenuSection>
 
         <MenuSection title="SUPPORT">
-          <MenuRow icon={Icons.help} label="Help & FAQs" onPress={() => comingSoon('Help & FAQs')} />
-          <MenuRow icon={Icons.refresh} label="Returns & refunds" onPress={() => comingSoon('Returns & refunds')} />
-          <MenuRow icon={Icons.document} label="Terms & privacy" onPress={() => comingSoon('Terms & privacy')} />
-          <MenuRow icon={Icons.info} label="About CBS Kitchenware" detail="Designer for your kitchen, since 1976" onPress={() => comingSoon('About CBS')} />
+          <MenuRow icon={Icons.help} label="Help & FAQs" detail="Orders, payments, delivery" onPress={() => router.push('/help')} />
+          <MenuRow icon={Icons.refresh} label="Returns & refunds" detail="Damaged or wrong item? We'll fix it" onPress={() => router.push('/returns')} />
+          <MenuRow icon={Icons.document} label="Terms & privacy" onPress={() => router.push('/legal')} />
+          <MenuRow icon={Icons.info} label="About CBS Kitchenware" detail="Designer for your kitchen, since 1976" onPress={() => router.push('/about')} />
         </MenuSection>
 
         <Button title="Sign out" icon={Icons.logout} variant="secondary" onPress={confirmSignOut} />

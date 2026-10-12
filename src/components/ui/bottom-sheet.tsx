@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
-import Animated, { SlideInDown } from 'react-native-reanimated';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { BackHandler, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Icons } from '@/components/ui/icon';
+import { Portal } from '@/components/ui/portal';
 import { AppText } from '@/components/ui/text';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -16,16 +17,44 @@ type BottomSheetProps = {
   footer?: ReactNode;
 };
 
+/**
+ * Sheet that slides up over the whole app, tab bar included.
+ *
+ * Drawn through <Portal> rather than a native Modal: on some Android phones the
+ * Modal window ends above the navigation/tab-bar area while its content is laid
+ * out for the full screen, which cut off the sheet's bottom buttons. In the app's
+ * own root view the sheet always gets the real screen, and `insets.bottom`
+ * keeps its content above the system navigation bar.
+ */
 export function BottomSheet({ visible, title, onClose, children, footer }: BottomSheetProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
+  // Android back button closes the sheet (a Modal used to do this for us)
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+  useEffect(() => {
+    if (!visible) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeRef.current();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [visible]);
+
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <View style={styles.root}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+    <Portal>
+      <View style={styles.root} accessibilityViewIsModal>
+        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(160)} style={styles.backdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+        </Animated.View>
         <Animated.View
           entering={SlideInDown.duration(260)}
+          exiting={SlideOutDown.duration(200)}
           style={[
             styles.sheet,
             { backgroundColor: theme.background, paddingBottom: insets.bottom + Spacing.three },
@@ -45,14 +74,16 @@ export function BottomSheet({ visible, title, onClose, children, footer }: Botto
           {footer && <View style={[styles.footer, { borderTopColor: theme.border }]}>{footer}</View>}
         </Animated.View>
       </View>
-    </Modal>
+    </Portal>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
-    flex: 1,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'flex-end',
+    zIndex: 1000,
+    elevation: 1000,
   },
   backdrop: {
     ...StyleSheet.absoluteFill,

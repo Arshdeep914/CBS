@@ -1,12 +1,15 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRootNavigationState } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { PortalHost } from '@/components/ui/portal';
 import { ToastHost } from '@/components/ui/toast';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { configureNotifications, listenForTaps } from '@/lib/notifications';
+import { loadAppConfig, useAppConfig } from '@/store/app-config';
 import { SessionProvider, useSession } from '@/store/session';
 
 const LightNavTheme = {
@@ -35,6 +38,8 @@ const DarkNavTheme = {
 
 // foreground banners and Android channels, before any notification can arrive
 void configureNotifications();
+// logo + tabs from the backend; the splash screen waits for it (max 3 s)
+void loadAppConfig();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -45,6 +50,8 @@ export default function RootLayout() {
         <SessionProvider>
           <StatusBar style="auto" />
           <RootNavigator />
+          {/* bottom sheets and other overlays, above every screen and the tab bar */}
+          <PortalHost />
           <ToastHost />
         </SessionProvider>
       </ThemeProvider>
@@ -59,11 +66,19 @@ export default function RootLayout() {
  */
 function RootNavigator() {
   const { status } = useSession();
-  if (status === 'loading') return null;
+  const config = useAppConfig();
+  const ready = status !== 'loading' && config.ready;
+
+  useEffect(() => {
+    if (ready) SplashScreen.hideAsync().catch(() => {});
+  }, [ready]);
+
+  if (!ready) return null;
 
   return (
     <>
       {status === 'signed-in' && <NotificationTaps />}
+      {/* The app opens on the first screen here that's allowed, so login / (tabs) must come first. */}
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Protected guard={status === 'signed-out'}>
           <Stack.Screen name="login" options={{ animation: 'fade' }} />
@@ -84,6 +99,12 @@ function RootNavigator() {
           <Stack.Screen name="address-form" options={{ presentation: 'modal' }} />
           <Stack.Screen name="notifications" />
         </Stack.Protected>
+
+        {/* static pages, open signed in or out — kept last so they're never the starting screen */}
+        <Stack.Screen name="help" />
+        <Stack.Screen name="returns" />
+        <Stack.Screen name="legal" />
+        <Stack.Screen name="about" />
       </Stack>
     </>
   );

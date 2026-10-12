@@ -3,6 +3,18 @@
  * storefronts (registration follows the Sardar Times site's v2 flow). Paths are relative — the axios client supplies the base URL.
  */
 export const ENDPOINTS = {
+  APP: {
+    /**
+     * Remote app configuration (logo, tabs), called at launch before sign-in.
+     * PROPOSED path — the backend team is building it; update to the final one.
+     */
+    CONFIGURATION: 'api/pk/Customer/configuration',
+  },
+  /** Device registration for push notifications. Need the signed-in customer's JWT (401 otherwise). */
+  MOBILE: {
+    VALIDATE_DEVICE: 'api/Mobile/ValidateDevice',
+    REGISTER_DEVICE: 'api/Mobile/RegisterDevice',
+  },
   CUSTOMER: {
     /** v2 sign-up: the customer chooses their password up front, then verifies an emailed OTP. */
     REGISTER: 'api/pk/Customer/v2/register',
@@ -28,13 +40,6 @@ export const ENDPOINTS = {
     /** `/{uid}` — cart and wishlist badge counts (as on the Chicstylista storefront). */
     COUNT: 'api/pk/Customer/Count',
 
-    /**
-     * Push-notification device tokens. NOT LIVE YET — these are the paths proposed
-     * to the backend team (docs/push-notifications-backend-guide.pdf, §4); update
-     * them to whatever they ship, then set EXPO_PUBLIC_PUSH_TOKEN_SYNC=true.
-     */
-    PUSH_TOKEN_REGISTER: 'api/pk/Customer/PushToken/Register',
-    PUSH_TOKEN_REMOVE: 'api/pk/Customer/PushToken/Remove',
     /** `/add` and `/remove`. */
     WISHLIST: 'api/pk/Customer/wishlist',
   },

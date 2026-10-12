@@ -203,8 +203,8 @@ export type ShopService = {
     setQty(id: string, qty: number): Promise<{ acknowledged: boolean; qty: number | null }>;
   };
   push: {
-    /** Saves this device's push token for the signed-in customer (idempotent). */
-    register(input: { token: string; platform: 'android' | 'ios'; deviceName: string | null; appVersion: string | null }): Promise<void>;
+    /** Validates, then registers, this device's push token for the signed-in customer. */
+    register(input: { pushToken: string; platform: 'android' | 'ios'; deviceName: string; osVersion: string; appVersion: string }): Promise<void>;
     /** Forgets this device's token (sign-out). Never fails on "not found". */
     remove(token: string): Promise<void>;
   };

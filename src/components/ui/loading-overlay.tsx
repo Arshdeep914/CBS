@@ -14,7 +14,13 @@ export function LoadingOverlay({ message }: LoadingOverlayProps) {
   const theme = useTheme();
 
   return (
-    <Modal visible={message !== null} transparent animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
+    <Modal
+      visible={message !== null}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={() => {}}>
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: theme.surface }]}>
           <ActivityIndicator size="large" color={theme.primary} />

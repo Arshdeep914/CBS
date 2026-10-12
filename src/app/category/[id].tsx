@@ -15,7 +15,7 @@ import { Spacing } from '@/constants/theme';
 import { useAsync } from '@/hooks/use-async';
 import { useInfiniteList } from '@/hooks/use-infinite-list';
 import { useTheme } from '@/hooks/use-theme';
-import { applyLocalFilters, EMPTY_FILTERS, serverFilterKey, serverFilters, type Filters } from '@/lib/filters';
+import { applyLocalFilters, decodeFilters, EMPTY_FILTERS, serverFilterKey, serverFilters, type Filters } from '@/lib/filters';
 import { shop } from '@/services';
 import { useCartCount } from '@/store/cart';
 
@@ -28,14 +28,15 @@ const RAIL_WIDTH = 84;
 export default function CategoryScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const params = useLocalSearchParams<{ id: string; name?: string }>();
+  // `f`: filters chosen before arriving here (Home's filter sheet), see encodeFilters
+  const params = useLocalSearchParams<{ id: string; name?: string; f?: string }>();
   const itemCount = useCartCount();
 
   const categories = useAsync(() => shop.catalog.categories(), []);
   const filterOptions = useAsync(() => shop.catalog.filters(), []);
 
   const [activeCode, setActiveCode] = useState(params.id);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<Filters>(() => decodeFilters(params.f));
 
   const active = categories.data?.find((c) => c.code === activeCode);
   // the listing endpoint is queried by category *name*

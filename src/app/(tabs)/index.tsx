@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, type ReactElement } from 'react';
+import { useCallback, useState, type ReactElement } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,6 +10,7 @@ import { BannerCarousel } from '@/components/home/banner-carousel';
 import { CategoryTile, TILE_TINTS } from '@/components/home/category-tile';
 import { ProductRail } from '@/components/home/product-rail';
 import { RailSkeleton, TileGridSkeleton } from '@/components/product/skeletons';
+import { FilterSheet } from '@/components/filters/filter-sheet';
 import { SearchLauncher } from '@/components/search-launcher';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
@@ -20,6 +21,7 @@ import { AppText } from '@/components/ui/text';
 import { Spacing } from '@/constants/theme';
 import { useAsync } from '@/hooks/use-async';
 import { useTheme } from '@/hooks/use-theme';
+import { EMPTY_FILTERS, encodeFilters, type Filters } from '@/lib/filters';
 import { shop } from '@/services';
 import { useCartCount } from '@/store/cart';
 import { countsActions, useCounts } from '@/store/counts';
@@ -50,6 +52,20 @@ export default function HomeScreen() {
 
   const categories = useAsync((_, options) => shop.catalog.categories(options), [], { refetchOnFocus: true });
   const brands = useAsync((_, options) => shop.catalog.brands(options), [], { refetchOnFocus: true });
+  // brand / colour / price groups for the filter sheet (same request as the brands, shared)
+  const filterOptions = useAsync((_, options) => shop.catalog.filters(options), []);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  /** Filter sheet → the chosen category's product list, already filtered. */
+  function showFiltered(filters: Filters, categoryCode?: string) {
+    setFilterOpen(false);
+    const category = categories.data?.find((c) => c.code === categoryCode);
+    if (!category) return;
+    router.push({
+      pathname: '/category/[id]',
+      params: { id: category.code, name: category.name, f: encodeFilters(filters) },
+    });
+  }
   const sections = useAsync((signal) => shop.catalog.home(signal), [], { refetchOnFocus: true });
   const updating = categories.updating || brands.updating || sections.updating;
 
@@ -82,7 +98,7 @@ export default function HomeScreen() {
       case 'search':
         return (
           <View style={[styles.searchWrap, { backgroundColor: theme.background }]}>
-            <SearchLauncher hints={categories.data?.map((c) => c.name)} />
+            <SearchLauncher hints={categories.data?.map((c) => c.name)} onFilterPress={() => setFilterOpen(true)} />
           </View>
         );
       case 'discover':
@@ -155,6 +171,18 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingBottom: itemCount > 0 ? CART_BAR_SPACE : Spacing.four }}
       />
       <CartBar aboveTabBar />
+      <FilterSheet
+        visible={filterOpen}
+        mode="filters"
+        title="Filter products"
+        applyLabel="Show products"
+        filters={EMPTY_FILTERS}
+        categories={categories.data ?? []}
+        groups={filterOptions.data?.groups ?? []}
+        showPrice
+        onClose={() => setFilterOpen(false)}
+        onApply={showFiltered}
+      />
     </View>
   );
 }

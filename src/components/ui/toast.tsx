@@ -82,6 +82,9 @@ const styles = StyleSheet.create({
     left: Spacing.three,
     right: Spacing.three,
     alignItems: 'center',
+    // above bottom sheets (PortalHost, zIndex 1000)
+    zIndex: 2000,
+    elevation: 2000,
   },
   toast: {
     width: '100%',

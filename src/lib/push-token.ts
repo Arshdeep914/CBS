@@ -15,7 +15,8 @@ import { shop } from '@/services';
  *
  * - After sign-in (and on every launch while signed in) the app asks for
  *   permission once, gets the token, logs it, and — when
- *   EXPO_PUBLIC_PUSH_TOKEN_SYNC=true — registers it with the backend.
+ *   EXPO_PUBLIC_PUSH_TOKEN_SYNC=true — sends it to the backend
+ *   (Mobile/ValidateDevice, then Mobile/RegisterDevice).
  * - On sign-out the token is removed from the backend first, so a shared phone
  *   stops getting the previous customer's notifications.
  *
@@ -73,11 +74,13 @@ async function syncWithBackend(token: string) {
   }
   try {
     await shop.push.register({
-      token,
+      pushToken: token,
       platform: Platform.OS === 'ios' ? 'ios' : 'android',
-      deviceName: Device.modelName ?? null,
-      appVersion: Constants.expoConfig?.version ?? null,
+      deviceName: Device.modelName ?? Device.deviceName ?? 'Unknown device',
+      osVersion: Device.osVersion ?? String(Platform.Version),
+      appVersion: Constants.expoConfig?.version ?? '1.0.0',
     });
+    console.log('[push] device validated and registered with the backend');
     return true;
   } catch (err) {
     // the token still works for direct tests; registration retries on next launch

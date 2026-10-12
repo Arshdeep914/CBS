@@ -259,7 +259,7 @@ function ProductView({ product, width }: { product: ProductDetail; width: number
 
           <View style={[styles.assurance, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Assurance icon={Icons.truck} title="Fast delivery" text="Dispatched in 24–48 hrs" />
-            <Assurance icon={Icons.refresh} title="Easy returns" text="On damaged items" />
+            <Assurance icon={Icons.refresh} title="Easy returns" text="On damaged items" onPress={() => router.push('/returns')} />
             <Assurance icon={Icons.shield} title="Secure payment" text="UPI, cards & COD" />
           </View>
         </View>
@@ -340,10 +340,14 @@ function StockPill({ outOfStock, available }: { outOfStock: boolean; available: 
   );
 }
 
-function Assurance({ icon, title, text }: { icon: IconName; title: string; text: string }) {
+function Assurance({ icon, title, text, onPress }: { icon: IconName; title: string; text: string; onPress?: () => void }) {
   const theme = useTheme();
   return (
-    <View style={styles.assuranceItem}>
+    <Pressable
+      disabled={!onPress}
+      accessibilityRole={onPress ? 'link' : undefined}
+      onPress={onPress}
+      style={({ pressed }) => [styles.assuranceItem, pressed && { opacity: 0.6 }]}>
       <View style={[styles.assuranceIcon, { backgroundColor: theme.primarySoft }]}>
         <Icon name={icon} color={theme.primary} size={16} />
       </View>
@@ -353,7 +357,7 @@ function Assurance({ icon, title, text }: { icon: IconName; title: string; text:
       <AppText variant="micro" color="textMuted" style={styles.center}>
         {text}
       </AppText>
-    </View>
+    </Pressable>
   );
 }
 

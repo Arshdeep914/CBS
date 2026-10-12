@@ -140,6 +140,30 @@ export type ApiCartItem = {
 
 export type ApiCartMutation = { cartCount?: number };
 
+/* --------------------------- app configuration --------------------------- */
+
+/**
+ * `GET configuration` → `data`. Every field is optional: anything missing or
+ * invalid falls back to the app's built-in value.
+ */
+export type ApiAppConfig = {
+  /** Logo shown inside the app. A URL string, or an object with its pixel size. */
+  logo?: string | { url?: string; width?: number; height?: number } | null;
+  /** Alternative to `logo` when only a URL is sent. */
+  logoUrl?: string | null;
+};
+
+/** Body of `Mobile/ValidateDevice` and `Mobile/RegisterDevice`. */
+export type ApiDevice = {
+  /** This app install's id — the push token itself (the backend asked for both to be the same). */
+  deviceId: string;
+  deviceName: string;
+  platform: string;
+  osVersion: string;
+  appVersion: string;
+  pushToken: string;
+};
+
 /** Count/{uid}: the header badge numbers. */
 export type ApiCounts = { cartCount?: number; wishlistCount?: number; isRandom?: boolean };
 
